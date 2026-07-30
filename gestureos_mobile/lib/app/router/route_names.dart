@@ -14,6 +14,10 @@ abstract final class RouteNames {
   static const String transferSuccess = 'transfer_success';
   static const String devices = 'devices';
   static const String settings = 'settings';
+  static const String performanceDashboard = 'performance_dashboard';
+  static const String transferHistory = 'transfer_history';
+  static const String pairing = 'pairing';
+  static const String deviceDetail = 'device_detail';
 }
 
 /// Route path constants for GoRouter navigation.
@@ -32,4 +36,8 @@ abstract final class RoutePaths {
   static const String transferSuccess = '/transfer-success';
   static const String devices = '/devices';
   static const String settings = '/settings';
+  static const String performanceDashboard = '/performance';
+  static const String transferHistory = '/history';
+  static const String pairing = '/pairing/:deviceId/:deviceName/:deviceIp/:devicePlatform';
+  static const String deviceDetail = '/device/:deviceId/:deviceName/:deviceIp/:devicePlatform/:devicePort/:isTrusted';
 }

@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:gesture_os/app/router/route_names.dart';
 import 'package:gesture_os/core/services/device_info_service.dart';
 import 'package:gesture_os/core/theme/app_colors.dart';
 import 'package:gesture_os/core/widgets/empty_state.dart';
@@ -127,11 +131,25 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
-                    (context, index) => DeviceTile(
-                      device: trusted[index],
-                      isTrusted: true,
-                      onForget: () => ref.read(trustedDevicesProvider.notifier).remove(trusted[index].id),
-                    ),
+                    (context, index) {
+                      final d = trusted[index];
+                      return DeviceTile(
+                        device: d,
+                        isTrusted: true,
+                        onTap: () => context.pushNamed(
+                          RouteNames.deviceDetail,
+                          pathParameters: {
+                            'deviceId': d.id,
+                            'deviceName': base64Url.encode(utf8.encode(d.name)),
+                            'deviceIp': d.ip,
+                            'devicePlatform': d.platform.index.toString(),
+                            'devicePort': d.port.toString(),
+                            'isTrusted': 'true',
+                          },
+                        ),
+                        onForget: () => ref.read(trustedDevicesProvider.notifier).remove(d.id),
+                      );
+                    },
                     childCount: trusted.length,
                   ),
                 ),
@@ -161,12 +179,24 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 80),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
-                      (context, index) => DeviceTile(
-                        device: visible[index],
-                        onTrust: () async {
-                          await ref.read(trustedDevicesProvider.notifier).add(visible[index]);
-                        },
-                      ),
+                      (context, index) {
+                        final d = visible[index];
+                        return DeviceTile(
+                          device: d,
+                          onTap: () => context.pushNamed(
+                            RouteNames.pairing,
+                            pathParameters: {
+                              'deviceId': d.id,
+                              'deviceName': base64Url.encode(utf8.encode(d.name)),
+                              'deviceIp': d.ip,
+                              'devicePlatform': d.platform.index.toString(),
+                            },
+                          ),
+                          onTrust: () async {
+                            await ref.read(trustedDevicesProvider.notifier).add(d);
+                          },
+                        );
+                      },
                       childCount: visible.length,
                     ),
                   ),

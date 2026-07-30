@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -13,7 +15,12 @@ import 'package:gesture_os/features/transfer_progress/presentation/page/transfer
 import 'package:gesture_os/features/receiver/presentation/page/receiver_screen.dart';
 import 'package:gesture_os/features/transfer_success/presentation/page/transfer_success_screen.dart';
 import 'package:gesture_os/features/devices/presentation/page/devices_screen.dart';
+import 'package:gesture_os/features/devices/presentation/page/devices_detail_screen.dart';
 import 'package:gesture_os/features/settings/presentation/page/settings_screen.dart';
+import 'package:gesture_os/shared/models/device_model.dart';
+import 'package:gesture_os/features/performance/presentation/page/performance_dashboard_screen.dart';
+import 'package:gesture_os/features/history/presentation/page/transfer_history_screen.dart';
+import 'package:gesture_os/features/pairing/presentation/page/pairing_screen.dart';
 
 /// Centralized GoRouter configuration for GestureOS.
 /// Handles all app navigation with smooth page transitions.
@@ -226,6 +233,79 @@ class AppRouter {
             );
           },
         ),
+      ),
+      GoRoute(
+        name: RouteNames.performanceDashboard,
+        path: RoutePaths.performanceDashboard,
+        pageBuilder: (context, state) => CustomTransitionPage<void>(
+          key: state.pageKey,
+          child: const PerformanceDashboardScreen(),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+        ),
+      ),
+      GoRoute(
+        name: RouteNames.transferHistory,
+        path: RoutePaths.transferHistory,
+        pageBuilder: (context, state) => CustomTransitionPage<void>(
+          key: state.pageKey,
+          child: const TransferHistoryScreen(),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+        ),
+      ),
+      GoRoute(
+        name: RouteNames.deviceDetail,
+        path: RoutePaths.deviceDetail,
+        pageBuilder: (context, state) {
+          final deviceId = state.pathParameters['deviceId'] ?? '';
+          final deviceName = utf8.decode(base64.decode(state.pathParameters['deviceName'] ?? ''));
+          final deviceIp = state.pathParameters['deviceIp'] ?? '';
+          final devicePlatform = int.tryParse(state.pathParameters['devicePlatform'] ?? '0') ?? 0;
+          final devicePort = int.tryParse(state.pathParameters['devicePort'] ?? '48771') ?? 48771;
+          final isTrusted = state.pathParameters['isTrusted'] == 'true';
+          return CustomTransitionPage<void>(
+            key: state.pageKey,
+            child: DevicesDetailScreen(
+              device: Device(
+                id: deviceId,
+                name: deviceName,
+                ip: deviceIp,
+                port: devicePort,
+                platform: DevicePlatform.values[devicePlatform],
+                lastSeen: DateTime.now(),
+                isTrusted: isTrusted,
+              ),
+            ),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+          );
+        },
+      ),
+      GoRoute(
+        name: RouteNames.pairing,
+        path: RoutePaths.pairing,
+        pageBuilder: (context, state) {
+          final deviceId = state.pathParameters['deviceId'] ?? '';
+          final deviceName = utf8.decode(base64.decode(state.pathParameters['deviceName'] ?? ''));
+          final deviceIp = state.pathParameters['deviceIp'] ?? '';
+          final devicePlatform = int.tryParse(state.pathParameters['devicePlatform'] ?? '0') ?? 0;
+          return CustomTransitionPage<void>(
+            key: state.pageKey,
+            child: PairingScreen(
+              deviceId: deviceId,
+              deviceName: deviceName,
+              deviceIp: deviceIp,
+              devicePlatform: devicePlatform,
+            ),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+          );
+        },
       ),
     ],
   );

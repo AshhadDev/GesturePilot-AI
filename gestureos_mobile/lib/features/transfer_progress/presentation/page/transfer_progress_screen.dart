@@ -7,7 +7,6 @@ import 'package:gesture_os/core/theme/app_colors.dart';
 import 'package:gesture_os/core/widgets/transfer_progress_ring.dart';
 import 'package:gesture_os/shared/providers/transfer_provider.dart';
 
-/// Transfer progress screen with real data from TransferNotifier.
 class TransferProgressScreen extends ConsumerStatefulWidget {
   const TransferProgressScreen({super.key});
 
@@ -30,6 +29,7 @@ class _TransferProgressScreenState
     const targetName = 'Desktop';
     final isFailed = transfer.status == TransferState.failed;
     final errMsg = transfer.transferError;
+    final isPaused = transfer.isPaused;
 
     if (transfer.status == TransferState.success) {
       Future.microtask(() {
@@ -47,13 +47,13 @@ class _TransferProgressScreenState
               const SizedBox(height: 8),
               _buildHeader(isFailed, errMsg),
               const Spacer(flex: 2),
-              _buildProgressRing(progress, isFailed),
+              _buildProgressRing(progress, isFailed, isPaused),
               const Spacer(flex: 1),
               _buildFileInfo(currentFile, targetName),
               const SizedBox(height: 24),
-              _buildSpeedInfo(speed, remaining),
+              _buildSpeedInfo(speed, remaining, isPaused),
               const Spacer(flex: 2),
-              _buildControls(isFailed),
+              _buildControls(isFailed, isPaused),
               const SizedBox(height: 24),
             ],
           ),
@@ -97,25 +97,30 @@ class _TransferProgressScreenState
     );
   }
 
-  Widget _buildProgressRing(double progress, bool isFailed) {
-    final percent = (progress * 100).toInt();
+  Widget _buildProgressRing(double progress, bool isFailed, bool isPaused) {
+    final displayProgress = progress;
+    final percent = (displayProgress * 100).toInt();
     return TransferProgressRing(
-      progress: progress,
+      progress: displayProgress,
       size: 200,
       strokeWidth: 14,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
-            isFailed ? '!' : '$percent%',
+            isFailed ? '!' : isPaused ? 'Paused' : '$percent%',
             style: GoogleFonts.poppins(
               fontSize: 36,
               fontWeight: FontWeight.w700,
-              color: isFailed ? AppColors.error : AppColors.textPrimary,
+              color: isFailed
+                  ? AppColors.error
+                  : isPaused
+                      ? Colors.orange
+                      : AppColors.textPrimary,
             ),
           ),
           Text(
-            isFailed ? 'Failed' : 'Complete',
+            isFailed ? 'Failed' : isPaused ? 'Paused' : 'Complete',
             style: GoogleFonts.poppins(
               fontSize: 13,
               color: AppColors.textSecondary,
@@ -153,13 +158,19 @@ class _TransferProgressScreenState
     );
   }
 
-  Widget _buildSpeedInfo(String speed, String remaining) {
+  Widget _buildSpeedInfo(String speed, String remaining, bool isPaused) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _infoChip(Icons.speed_rounded, speed),
+        _infoChip(
+          isPaused ? Icons.pause_rounded : Icons.speed_rounded,
+          isPaused ? 'Paused' : speed,
+        ),
         const SizedBox(width: 16),
-        _infoChip(Icons.timer_outlined, remaining),
+        _infoChip(
+          Icons.timer_outlined,
+          isPaused ? '—' : remaining,
+        ),
       ],
     );
   }
@@ -189,63 +200,164 @@ class _TransferProgressScreenState
     );
   }
 
-  Widget _buildControls(bool isFailed) {
+  Widget _buildControls(bool isFailed, bool isPaused) {
     final notifier = ref.read(transferProvider.notifier);
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: GestureDetector(
-            onTap: () => context.goNamed(RouteNames.home),
-            child: Container(
-              height: 54,
-              decoration: BoxDecoration(
-                color: AppColors.card,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.border, width: 1),
-              ),
-              child: Center(
-                child: Text(
-                  isFailed ? 'Dismiss' : 'Minimize',
-                  style: GoogleFonts.poppins(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: () => context.goNamed(RouteNames.home),
+                child: Container(
+                  height: 54,
+                  decoration: BoxDecoration(
+                    color: AppColors.card,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.border, width: 1),
                   ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        if (isFailed) ...[
-          const SizedBox(width: 12),
-          Expanded(
-            child: GestureDetector(
-              onTap: () {
-                notifier.retryTransfer();
-                context.goNamed(RouteNames.waitingDesktop);
-              },
-              child: Container(
-                height: 54,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.4),
-                    width: 1,
-                  ),
-                ),
-                child: Center(
-                  child: Text(
-                    'Retry',
-                    style: GoogleFonts.poppins(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.primary,
+                  child: Center(
+                    child: Text(
+                      isFailed ? 'Dismiss' : 'Minimize',
+                      style: GoogleFonts.poppins(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
+            if (isFailed) ...[
+              const SizedBox(width: 12),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    notifier.retryTransfer();
+                    context.goNamed(RouteNames.waitingDesktop);
+                  },
+                  child: Container(
+                    height: 54,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.4),
+                        width: 1,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        'Retry',
+                        style: GoogleFonts.poppins(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        if (!isFailed) ...[
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    if (isPaused) {
+                      notifier.resumeTransfer();
+                    } else {
+                      notifier.pauseTransfer();
+                    }
+                  },
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: isPaused
+                          ? AppColors.primary.withValues(alpha: 0.15)
+                          : AppColors.card,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isPaused
+                            ? AppColors.primary.withValues(alpha: 0.4)
+                            : AppColors.border,
+                        width: 1,
+                      ),
+                    ),
+                    child: Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            isPaused
+                                ? Icons.play_arrow_rounded
+                                : Icons.pause_rounded,
+                            size: 18,
+                            color: isPaused ? AppColors.primary : AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            isPaused ? 'Resume' : 'Pause',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: isPaused ? AppColors.primary : AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    notifier.cancelTransfer();
+                    context.goNamed(RouteNames.home);
+                  },
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: AppColors.error.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: AppColors.error.withValues(alpha: 0.3),
+                        width: 1,
+                      ),
+                    ),
+                    child: Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.close_rounded,
+                            size: 18,
+                            color: AppColors.error,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Cancel',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.error,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ],

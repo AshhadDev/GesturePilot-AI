@@ -1,15 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:gesture_os/app/router/route_names.dart';
 import 'package:gesture_os/core/theme/app_colors.dart';
 import 'package:gesture_os/shared/providers/device_providers.dart';
+import 'package:gesture_os/shared/services/clipboard_service.dart';
+import 'package:gesture_os/shared/services/discovery_service.dart';
 
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  bool _autoDiscover = true;
+  bool _autoAcceptTrusted = false;
+  bool _clipboardSync = true;
+
+  @override
+  Widget build(BuildContext context) {
     final localAsync = ref.watch(localDeviceInfoProvider);
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -48,8 +61,15 @@ class SettingsScreen extends ConsumerWidget {
             title: 'Auto-discover devices',
             subtitle: 'Find devices on your network',
             trailing: Switch(
-              value: true,
-              onChanged: (_) {},
+              value: _autoDiscover,
+              onChanged: (v) {
+                setState(() => _autoDiscover = v);
+                if (v) {
+                  DiscoveryService.instance.start();
+                } else {
+                  DiscoveryService.instance.stop();
+                }
+              },
               activeTrackColor: AppColors.primary,
               activeThumbColor: Colors.white,
             ),
@@ -67,8 +87,29 @@ class SettingsScreen extends ConsumerWidget {
             icon: Icons.wifi_protected_setup_rounded,
             title: 'Auto-accept from trusted devices',
             trailing: Switch(
-              value: false,
-              onChanged: (_) {},
+              value: _autoAcceptTrusted,
+              onChanged: (v) => setState(() => _autoAcceptTrusted = v),
+              activeTrackColor: AppColors.primary,
+              activeThumbColor: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 24),
+          _buildSection('Sync'),
+          _buildTile(
+            icon: Icons.content_paste_rounded,
+            title: 'Clipboard Sync',
+            subtitle: 'Share clipboard with trusted devices',
+            trailing: Switch(
+              value: _clipboardSync,
+              onChanged: (v) {
+                setState(() => _clipboardSync = v);
+                ClipboardSyncService.instance.setEnabled(v);
+                if (v) {
+                  ClipboardSyncService.instance.startWatching();
+                } else {
+                  ClipboardSyncService.instance.stopWatching();
+                }
+              },
               activeTrackColor: AppColors.primary,
               activeThumbColor: Colors.white,
             ),
@@ -87,6 +128,23 @@ class SettingsScreen extends ConsumerWidget {
             title: 'Animation Quality',
             subtitle: 'High',
             onTap: () {},
+          ),
+          const SizedBox(height: 24),
+          _buildSection('Advanced'),
+          _buildTile(
+            icon: Icons.speed_rounded,
+            title: 'Performance Dashboard',
+            subtitle: 'Live FPS, memory, network metrics',
+            trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary, size: 20),
+            onTap: () => context.pushNamed(RouteNames.performanceDashboard),
+          ),
+          const SizedBox(height: 8),
+          _buildTile(
+            icon: Icons.history_rounded,
+            title: 'Transfer History',
+            subtitle: 'View past file transfers',
+            trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary, size: 20),
+            onTap: () => context.pushNamed(RouteNames.transferHistory),
           ),
         ],
       ),
