@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" fill="none">
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <filter id="softglow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+    </filter>
+    <linearGradient id="grad1" x1="40" y1="40" x2="260" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#A855F7"/>
+    </linearGradient>
+    <linearGradient id="grad2" x1="60" y1="60" x2="240" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Soft background glow -->
+  <ellipse cx="150" cy="140" rx="90" ry="90" fill="#7C3AED" opacity="0.12" filter="url(#softglow)"/>
+
+  <g filter="url(#glow)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Left hand (smaller, pointing right) -->
+    <path d="M55 155 L55 135 Q55 128 60 125 L63 124 L63 110 Q63 105 68 103 L70 102 Q75 101 75 106 L75 120"
+          stroke="url(#grad1)" fill="none"/>
+    <path d="M75 120 L75 100 Q75 95 80 93 L82 92 Q87 91 87 96 L87 120"
+          stroke="url(#grad1)" fill="none"/>
+    <path d="M87 120 L87 96 Q87 91 92 89 L94 88 Q99 87 99 92 L99 120"
+          stroke="url(#grad1)" fill="none"/>
+    <path d="M55 135 Q48 130 44 118 Q42 112 46 107 L50 103 Q54 101 57 106 L63 118"
+          stroke="url(#grad2)" fill="none"/>
+    <path d="M55 155 Q55 162 65 166 L80 170 Q95 172 99 166 Q99 162 99 155"
+          stroke="url(#grad1)" fill="none"/>
+
+    <!-- Arrow / transfer symbol in center -->
+    <path d="M115 140 L185 140" stroke="url(#grad1)" stroke-width="2" opacity="0.7"/>
+    <path d="M175 132 L185 140 L175 148" stroke="url(#grad1)" stroke-width="2" fill="none" opacity="0.7"/>
+    <path d="M185 155 L115 155" stroke="url(#grad2)" stroke-width="2" opacity="0.7"/>
+    <path d="M125 147 L115 155 L125 163" stroke="url(#grad2)" stroke-width="2" fill="none" opacity="0.7"/>
+
+    <!-- Data particles along arrow -->
+    <circle cx="130" cy="135" r="2" fill="#A855F7" opacity="0.6"/>
+    <circle cx="155" cy="132" r="1.5" fill="#7C3AED" opacity="0.5"/>
+    <circle cx="170" cy="137" r="2" fill="#8B5CF6" opacity="0.4"/>
+    <circle cx="145" cy="160" r="1.5" fill="#A855F7" opacity="0.5"/>
+    <circle cx="160" cy="162" r="2" fill="#7C3AED" opacity="0.6"/>
+
+    <!-- Right hand (smaller, pointing left) -->
+    <path d="M245 155 L245 135 Q245 128 240 125 L237 124 L237 110 Q237 105 232 103 L230 102 Q225 101 225 106 L225 120"
+          stroke="url(#grad1)" fill="none"/>
+    <path d="M225 120 L225 100 Q225 95 220 93 L218 92 Q213 91 213 96 L213 120"
+          stroke="url(#grad1)" fill="none"/>
+    <path d="M213 120 L213 96 Q213 91 208 89 L206 88 Q201 87 201 92 L201 120"
+          stroke="url(#grad1)" fill="none"/>
+    <path d="M245 135 Q252 130 256 118 Q258 112 254 107 L250 103 Q246 101 243 106 L237 118"
+          stroke="url(#grad2)" fill="none"/>
+    <path d="M245 155 Q245 162 235 166 L220 170 Q205 172 201 166 Q201 162 201 155"
+          stroke="url(#grad1)" fill="none"/>
+  </g>
+
+  <!-- Decorative dots -->
+  <circle cx="150" cy="30" r="1.5" fill="#A855F7" opacity="0.35"/>
+  <circle cx="70" cy="80" r="2" fill="#7C3AED" opacity="0.3"/>
+  <circle cx="230" cy="80" r="1.5" fill="#8B5CF6" opacity="0.3"/>
+  <circle cx="150" cy="260" r="1.5" fill="#A855F7" opacity="0.3"/>
+</svg>

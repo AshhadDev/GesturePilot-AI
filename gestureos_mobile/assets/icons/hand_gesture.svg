@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" fill="none">
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <filter id="softglow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+    </filter>
+    <linearGradient id="grad1" x1="60" y1="40" x2="240" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#A855F7"/>
+    </linearGradient>
+    <linearGradient id="grad2" x1="80" y1="60" x2="220" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Soft background glow -->
+  <ellipse cx="150" cy="145" rx="95" ry="95" fill="#7C3AED" opacity="0.12" filter="url(#softglow)"/>
+
+  <!-- Hand outline - open palm gesture facing forward -->
+  <g filter="url(#glow)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Palm base -->
+    <path d="M108 195 L108 155 Q108 145 115 140 L120 138 L120 98 Q120 88 128 86 L132 85 Q140 83 142 92 L142 130"
+          stroke="url(#grad1)" fill="none"/>
+    <!-- Index finger -->
+    <path d="M142 130 L142 72 Q142 62 150 60 L154 59 Q162 58 162 68 L162 130"
+          stroke="url(#grad1)" fill="none"/>
+    <!-- Middle finger -->
+    <path d="M162 130 L162 58 Q162 48 170 46 L174 45 Q182 44 182 54 L182 130"
+          stroke="url(#grad1)" fill="none"/>
+    <!-- Ring finger -->
+    <path d="M182 130 L182 65 Q182 55 190 53 L194 52 Q202 51 202 61 L202 130"
+          stroke="url(#grad1)" fill="none"/>
+    <!-- Pinky finger -->
+    <path d="M202 130 L202 80 Q202 70 208 68 L212 67 Q218 66 218 76 L218 140"
+          stroke="url(#grad2)" fill="none"/>
+    <!-- Thumb -->
+    <path d="M108 155 Q98 148 90 130 Q86 120 92 112 L98 106 Q104 102 110 108 L120 125"
+          stroke="url(#grad2)" fill="none"/>
+    <!-- Palm bottom curve -->
+    <path d="M108 195 Q108 210 125 218 L150 225 Q175 228 195 218 Q218 208 218 195"
+          stroke="url(#grad1)" fill="none"/>
+    <!-- Wrist -->
+    <path d="M108 195 L105 220 Q104 228 112 232 L150 240 L188 232 Q196 228 195 220 L195 195"
+          stroke="url(#grad1)" fill="none"/>
+  </g>
+
+  <!-- Small decorative dots -->
+  <circle cx="82" cy="90" r="2" fill="#A855F7" opacity="0.5"/>
+  <circle cx="228" cy="85" r="1.5" fill="#7C3AED" opacity="0.4"/>
+  <circle cx="75" cy="170" r="1.5" fill="#8B5CF6" opacity="0.3"/>
+  <circle cx="235" cy="175" r="2" fill="#A855F7" opacity="0.4"/>
+  <circle cx="150" cy="28" r="1.5" fill="#7C3AED" opacity="0.35"/>
+</svg>
