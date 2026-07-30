@@ -26,6 +26,7 @@ class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
   Device? _selectedDevice;
   late final AnimationController _radarController;
   late final AnimationController _pulseController;
+  late final AnimationController _discoveryController;
 
   @override
   void initState() {
@@ -40,6 +41,11 @@ class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
 
+    _discoveryController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    )..repeat();
+
     _startDiscovery();
   }
 
@@ -53,6 +59,7 @@ class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
   void dispose() {
     _radarController.dispose();
     _pulseController.dispose();
+    _discoveryController.dispose();
     super.dispose();
   }
 
@@ -79,9 +86,9 @@ class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
           child: Column(
             children: [
               const SizedBox(height: 8),
-              _buildHeader(),
+              _buildHeader(context),
               const SizedBox(height: 8),
-              _buildRadarSection(active),
+              _buildOrbitSection(active, devices.valueOrNull ?? []),
               const SizedBox(height: 8),
               Expanded(
                 child: devices.when(
@@ -118,7 +125,7 @@ class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
     return map.values.toList();
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(BuildContext context) {
     return Row(
       children: [
         GestureDetector(
@@ -153,42 +160,147 @@ class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
     );
   }
 
-  Widget _buildRadarSection(bool active) {
+  Widget _buildOrbitSection(bool active, List<Device> devices) {
     return AnimatedBuilder(
-      animation: Listenable.merge([_radarController, _pulseController]),
+      animation: Listenable.merge(
+          [_radarController, _pulseController, _discoveryController]),
       builder: (context, _) {
         final radarAngle = _radarController.value * math.pi * 2;
         final pulse = _pulseController.value;
+        final discT = _discoveryController.value;
 
-        return Stack(
-          alignment: Alignment.center,
-          children: [
-            // Radar painting
-            SizedBox(
-              width: 100,
-              height: 100,
-              child: CustomPaint(
-                painter: _RadarPainter(
-                  angle: radarAngle,
-                  pulse: pulse,
-                  active: active,
-                  hasDevices: ref.read(discoveredDevicesStreamProvider).valueOrNull?.isNotEmpty ?? false,
+        return SizedBox(
+          width: double.infinity,
+          height: 200,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Cinematic orbit visualization
+              if (devices.isNotEmpty)
+                CustomPaint(
+                  size: const Size(200, 200),
+                  painter: _OrbitPainter(
+                    angle: radarAngle,
+                    pulse: pulse,
+                    active: active,
+                    deviceCount: devices.length,
+                    selectedIndex: _selectedDevice != null
+                        ? devices.indexWhere((d) => d.id == _selectedDevice!.id)
+                        : -1,
+                    discT: discT,
+                  ),
+                ),
+              // Orb in center
+              IgnorePointer(
+                child: EnhancedOrb(
+                  size: 50,
+                  state: _selectedDevice != null
+                      ? OrbState.launching
+                      : (active ? OrbState.active : OrbState.idle),
+                  intensity: 0.4 + pulse * 0.3,
+                  progress: pulse,
                 ),
               ),
-            ),
-            // Orb in center
-            IgnorePointer(
-              child: EnhancedOrb(
-                size: 40,
-                state: _selectedDevice != null ? OrbState.launching : OrbState.carrying,
-                intensity: 0.4 + pulse * 0.3,
-                progress: pulse,
-              ),
-            ),
-          ],
+              // Device orbit dots
+              if (devices.isNotEmpty)
+                ..._buildOrbitDots(devices, discT),
+            ],
+          ),
         );
       },
     );
+  }
+
+  List<Widget> _buildOrbitDots(List<Device> devices, double discT) {
+    final count = devices.length;
+    final dotList = <Widget>[];
+    final nearestIdx = 0;
+
+    for (int i = 0; i < count; i++) {
+      final isSelected = _selectedDevice?.id == devices[i].id;
+      final isNearest = i == nearestIdx && count > 1;
+      // Orbit position
+      final orbitAngle = (i / count) * math.pi * 2 + discT * math.pi * 0.15;
+      final orbitRadius = 60.0 + math.sin(discT * math.pi * 2 + i) * 5;
+      final dx = math.cos(orbitAngle) * orbitRadius;
+      final dy = math.sin(orbitAngle) * orbitRadius;
+      // Float bob
+      final floatOffset = math.sin(discT * math.pi * 4 + i * 1.5) * 3;
+
+      // Auto-front nearest
+      final scale = isNearest ? 1.3 : (isSelected ? 1.1 : 0.8);
+      final alpha = isNearest || isSelected ? 1.0 : 0.6;
+
+      dotList.add(
+        Positioned(
+          left: 100 + dx - 8 * scale,
+          top: 100 + dy + floatOffset - 8 * scale,
+          child: Opacity(
+            opacity: alpha,
+            child: Material(
+              type: MaterialType.transparency,
+              child: GestureDetector(
+                onTap: () => setState(() => _selectedDevice = devices[i]),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                width: 16 * scale,
+                height: 16 * scale,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isSelected
+                      ? AppColors.accent
+                      : (isNearest
+                          ? AppColors.success
+                          : AppColors.primary),
+                  boxShadow: [
+                    if (isSelected || isNearest)
+                      BoxShadow(
+                        color: (isSelected
+                                ? AppColors.accent
+                                : AppColors.success)
+                            .withValues(alpha: 0.4),
+                        blurRadius: 8,
+                        spreadRadius: 1,
+                      ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    '${i + 1}',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 8 * scale,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ));
+
+      // Connection beam from center to device
+      if (isSelected) {
+        dotList.add(
+          Positioned(
+            left: 100,
+            top: 100,
+            child: IgnorePointer(
+              child: CustomPaint(
+                size: const Size(200, 200),
+                painter: _BeamPainter(
+                  angle: orbitAngle,
+                  distance: orbitRadius,
+                  intensity: 0.6 + (math.sin(discT * math.pi * 3) + 1) * 0.2,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+    return dotList;
   }
 
   Widget _buildEmptyState(bool active) {
@@ -282,110 +394,133 @@ class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
   }
 }
 
-class _RadarPainter extends CustomPainter {
+class _OrbitPainter extends CustomPainter {
   final double angle;
   final double pulse;
   final bool active;
-  final bool hasDevices;
+  final int deviceCount;
+  final int selectedIndex;
+  final double discT;
 
-  _RadarPainter({
+  _OrbitPainter({
     required this.angle,
     required this.pulse,
     required this.active,
-    required this.hasDevices,
+    required this.deviceCount,
+    required this.selectedIndex,
+    required this.discT,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final r = size.width / 2;
 
-    // Background circle
-    canvas.drawCircle(
-      center,
-      r,
-      Paint()
-        ..color = AppColors.card.withValues(alpha: 0.5)
-        ..style = PaintingStyle.fill,
-    );
+    // Orbital rings
+    final ringCount = 3;
+    for (int i = 0; i < ringCount; i++) {
+      final ringR = 40.0 + i * 25.0;
+      final ringAlpha = (0.08 + (1 - i / ringCount) * 0.08).clamp(0.0, 0.15);
+      final dashPhase = (angle + i * 0.5) % (math.pi * 2);
 
-    // Radar rings
-    for (int i = 1; i <= 3; i++) {
-      final ringR = r * (i / 3.0);
       canvas.drawCircle(
         center,
         ringR,
         Paint()
-          ..color = AppColors.border.withValues(alpha: 0.3)
+          ..color = AppColors.border.withValues(alpha: ringAlpha)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 0.5,
       );
+
+      // Animated dash on outer ring
+      if (i == ringCount - 1 && active) {
+        canvas.drawArc(
+          Rect.fromCircle(center: center, radius: ringR),
+          dashPhase - 0.2,
+          0.4,
+          false,
+          Paint()
+            ..color = AppColors.accent.withValues(alpha: 0.2)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5
+            ..strokeCap = StrokeCap.round,
+        );
+      }
     }
 
-    if (!active) return;
-
-    // Scanning beam
-    final beamPaint = Paint()
-      ..shader = SweepGradient(
-        startAngle: angle - 0.3,
-        endAngle: angle + 0.3,
-        colors: [
-          AppColors.accent.withValues(alpha: 0.15),
-          AppColors.accent.withValues(alpha: 0.05),
-          Colors.transparent,
-        ],
-      ).createShader(Rect.fromCircle(center: center, radius: r));
-
-    canvas.drawCircle(center, r, beamPaint);
-
-    // Scanner dot
-    final dotX = center.dx + math.cos(angle) * r * 0.85;
-    final dotY = center.dy + math.sin(angle) * r * 0.85;
-    canvas.drawCircle(
-      Offset(dotX, dotY),
-      3,
-      Paint()..color = AppColors.accent,
-    );
-    canvas.drawCircle(
-      Offset(dotX, dotY),
-      6,
-      Paint()
-        ..color = AppColors.accent.withValues(alpha: 0.3)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
-    );
-
-    // Pulse wave
-    if (hasDevices) {
-      final pulseR = r * (0.3 + pulse * 0.5);
-      canvas.drawCircle(
-        center,
-        pulseR,
-        Paint()
-          ..color = AppColors.success.withValues(alpha: (1 - pulse) * 0.2)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5 * (1 - pulse),
-      );
-    }
-
-    // Device signal dots
-    if (hasDevices) {
-      for (int i = 0; i < 3; i++) {
-        final dotAngle = (i / 3.0) * math.pi * 2 + angle * 0.3;
-        final dotDist = r * (0.4 + (i + 1) * 0.12);
-        final dx = center.dx + math.cos(dotAngle) * dotDist;
-        final dy = center.dy + math.sin(dotAngle) * dotDist;
-        final dotPulse = (math.sin(angle + i) + 1) / 2;
+    // Materialization particles (cinematic discovery)
+    if (active && deviceCount > 0) {
+      final particleCount = 12;
+      for (int i = 0; i < particleCount; i++) {
+        final pAngle = (i / particleCount) * math.pi * 2 +
+            discT * math.pi * 0.5 +
+            math.sin(discT * math.pi * 2 + i) * 0.3;
+        final pDist = 30 + math.sin(discT * math.pi * 3 + i * 1.7) * 20;
+        final px = center.dx + math.cos(pAngle) * pDist;
+        final py = center.dy + math.sin(pAngle) * pDist;
+        final particleLife = (math.sin(discT * math.pi * 2 + i * 0.7) + 1) / 2;
+        final particleSize = 1 + particleLife * 2;
 
         canvas.drawCircle(
-          Offset(dx, dy),
-          1.5 + dotPulse * 1.5,
-          Paint()..color = AppColors.primary.withValues(alpha: 0.4 + dotPulse * 0.3),
+          Offset(px, py),
+          particleSize,
+          Paint()
+            ..color = AppColors.primary.withValues(
+              alpha: 0.1 + particleLife * 0.2,
+            ),
         );
       }
     }
   }
 
   @override
-  bool shouldRepaint(_RadarPainter old) =>
-      angle != old.angle || pulse != old.pulse || active != old.active;
+  bool shouldRepaint(_OrbitPainter old) =>
+      angle != old.angle ||
+      pulse != old.pulse ||
+      active != old.active ||
+      deviceCount != old.deviceCount ||
+      discT != old.discT;
+}
+
+class _BeamPainter extends CustomPainter {
+  final double angle;
+  final double distance;
+  final double intensity;
+
+  _BeamPainter({
+    required this.angle,
+    required this.distance,
+    required this.intensity,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final endX = center.dx + math.cos(angle) * distance;
+    final endY = center.dy + math.sin(angle) * distance;
+
+    final beamPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [
+          AppColors.accent.withValues(alpha: 0.4 * intensity),
+          AppColors.accent.withValues(alpha: 0.1 * intensity),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.5, 1.0],
+      ).createShader(
+        Rect.fromPoints(
+          center,
+          Offset(endX, endY),
+        ),
+      )
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5 * intensity;
+
+    canvas.drawLine(center, Offset(endX, endY), beamPaint);
+  }
+
+  @override
+  bool shouldRepaint(_BeamPainter old) =>
+      angle != old.angle || intensity != old.intensity;
 }

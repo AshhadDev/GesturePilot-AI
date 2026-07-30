@@ -62,7 +62,12 @@ class _DeviceDiscoveryCardState extends State<DeviceDiscoveryCard>
           opacity: enterOpacity,
           child: Transform.scale(
             scale: enterScale,
-            child: GestureDetector(
+            child: Semantics(
+              label: '${widget.device.name} ${widget.device.platform.name} device${widget.isNearest ? ', nearest' : ''}${widget.isSelected ? ', selected' : ''}',
+              hint: 'Tap to select this device for transfer',
+              selected: widget.isSelected,
+              onTapHint: 'Select device',
+              child: GestureDetector(
               onTap: widget.onTap,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
@@ -109,7 +114,8 @@ class _DeviceDiscoveryCardState extends State<DeviceDiscoveryCard>
               ),
             ),
           ),
-        );
+        ),
+      );
       },
     );
   }

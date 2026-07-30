@@ -16,6 +16,150 @@ enum OrbState {
   error,
 }
 
+class _StateVisualIdentity {
+  final Color primaryColor;
+  final Color accentColor;
+  final Color glowColor;
+  final double rotationSpeed;
+  final double sparkRate;
+  final double plasmaSpeed;
+  final double arcIntensity;
+  final double bloomIntensity;
+
+  const _StateVisualIdentity({
+    required this.primaryColor,
+    required this.accentColor,
+    required this.glowColor,
+    this.rotationSpeed = 0.4,
+    this.sparkRate = 0.08,
+    this.plasmaSpeed = 0.3,
+    this.arcIntensity = 0.3,
+    this.bloomIntensity = 0.15,
+  });
+
+  static const idle = _StateVisualIdentity(
+    primaryColor: AppColors.primary,
+    accentColor: AppColors.accent,
+    glowColor: AppColors.glowPurple,
+    rotationSpeed: 0.1,
+    sparkRate: 0.0,
+    plasmaSpeed: 0.15,
+    arcIntensity: 0.0,
+    bloomIntensity: 0.05,
+  );
+
+  static const awakening = _StateVisualIdentity(
+    primaryColor: AppColors.accent,
+    accentColor: AppColors.secondary,
+    glowColor: AppColors.glowPurpleStrong,
+    rotationSpeed: 0.6,
+    sparkRate: 0.12,
+    plasmaSpeed: 0.5,
+    arcIntensity: 0.5,
+    bloomIntensity: 0.2,
+  );
+
+  static const active = _StateVisualIdentity(
+    primaryColor: AppColors.accent,
+    accentColor: AppColors.primary,
+    glowColor: AppColors.glowPurpleStrong,
+    rotationSpeed: 0.8,
+    sparkRate: 0.15,
+    plasmaSpeed: 0.7,
+    arcIntensity: 0.7,
+    bloomIntensity: 0.25,
+  );
+
+  static const carrying = _StateVisualIdentity(
+    primaryColor: AppColors.primary,
+    accentColor: AppColors.success,
+    glowColor: AppColors.glowPurple,
+    rotationSpeed: 0.5,
+    sparkRate: 0.1,
+    plasmaSpeed: 0.4,
+    arcIntensity: 0.4,
+    bloomIntensity: 0.15,
+  );
+
+  static const packing = _StateVisualIdentity(
+    primaryColor: AppColors.accent,
+    accentColor: AppColors.secondary,
+    glowColor: AppColors.glowPurpleStrong,
+    rotationSpeed: 1.0,
+    sparkRate: 0.2,
+    plasmaSpeed: 1.0,
+    arcIntensity: 1.0,
+    bloomIntensity: 0.3,
+  );
+
+  static const launching = _StateVisualIdentity(
+    primaryColor: AppColors.secondary,
+    accentColor: AppColors.accent,
+    glowColor: AppColors.glowPurpleStrong,
+    rotationSpeed: 1.2,
+    sparkRate: 0.25,
+    plasmaSpeed: 1.2,
+    arcIntensity: 1.2,
+    bloomIntensity: 0.35,
+  );
+
+  static const transferring = _StateVisualIdentity(
+    primaryColor: AppColors.accent,
+    accentColor: AppColors.success,
+    glowColor: AppColors.glowPurpleStrong,
+    rotationSpeed: 0.6,
+    sparkRate: 0.1,
+    plasmaSpeed: 0.5,
+    arcIntensity: 0.5,
+    bloomIntensity: 0.2,
+  );
+
+  static const completed = _StateVisualIdentity(
+    primaryColor: AppColors.success,
+    accentColor: AppColors.primary,
+    glowColor: AppColors.glowPurple,
+    rotationSpeed: 0.2,
+    sparkRate: 0.0,
+    plasmaSpeed: 0.2,
+    arcIntensity: 0.2,
+    bloomIntensity: 0.25,
+  );
+
+  static const error = _StateVisualIdentity(
+    primaryColor: AppColors.error,
+    accentColor: AppColors.error,
+    glowColor: AppColors.error,
+    rotationSpeed: 0.3,
+    sparkRate: 0.18,
+    plasmaSpeed: 0.4,
+    arcIntensity: 0.6,
+    bloomIntensity: 0.35,
+  );
+
+  static _StateVisualIdentity forState(OrbState state) {
+    switch (state) {
+      case OrbState.idle:
+        return idle;
+      case OrbState.awakening:
+        return awakening;
+      case OrbState.active:
+        return active;
+      case OrbState.carrying:
+        return carrying;
+      case OrbState.packing:
+        return packing;
+      case OrbState.launching:
+        return launching;
+      case OrbState.transferring:
+        return transferring;
+      case OrbState.completed:
+        return completed;
+      case OrbState.error:
+        return error;
+    }
+  }
+}
+
 class EnhancedOrb extends StatefulWidget {
   final double size;
   final OrbState state;
@@ -60,6 +204,10 @@ class _EnhancedOrbState extends State<EnhancedOrb>
   double _prevTargetX = 0;
   double _prevTargetY = 0;
 
+  // Rotation tracking
+  double _rotationAngle = 0;
+  double _targetRotation = 0;
+
   // Previous positions for motion trail
   final _trailHistory = <Offset>[];
   static const int _trailLength = 6;
@@ -67,6 +215,9 @@ class _EnhancedOrbState extends State<EnhancedOrb>
   // Spark timers
   double _nextSparkTime = 0;
   final _sparks = <_Spark>[];
+
+  _StateVisualIdentity get _identity =>
+      _StateVisualIdentity.forState(widget.state);
 
   @override
   void initState() {
@@ -108,6 +259,7 @@ class _EnhancedOrbState extends State<EnhancedOrb>
   @override
   Widget build(BuildContext context) {
     _updateSpring();
+    _updateRotation();
     _updateSparks();
 
     final active = widget.state != OrbState.idle;
@@ -121,11 +273,8 @@ class _EnhancedOrbState extends State<EnhancedOrb>
         final heartbeat =
             _heartbeatController.value * (1 - _heartbeatController.value) * 4;
 
-        // Compute motion blur offset based on velocity
         final blurDx = (_velocityX * 0.3).clamp(-8.0, 8.0);
         final blurDy = (_velocityY * 0.3).clamp(-8.0, 8.0);
-
-        // Magnetic stretch when hand is close (high intensity)
         final stretch = 1.0 + widget.intensity * 0.06;
 
         return Container(
@@ -136,21 +285,25 @@ class _EnhancedOrbState extends State<EnhancedOrb>
             offset: Offset(_currentX, _currentY),
             child: Opacity(
               opacity: widget.state == OrbState.error ? 0.6 + breath * 0.4 : 1.0,
-              child: CustomPaint(
-                size: Size(widget.size * stretch, widget.size / stretch),
-                painter: _OrbPainter(
-                  state: widget.state,
-                  progress: widget.progress,
-                  intensity: widget.intensity,
-                  breath: breath,
-                  heartbeat: heartbeat,
-                  time: _particleController.value * math.pi * 2,
-                  sparkTime: _sparkController.value * 100,
-                  random: _random,
-                  sparks: _sparks,
-                  trail: _trailHistory,
-                  blurDx: blurDx,
-                  blurDy: blurDy,
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  size: Size(widget.size * stretch, widget.size / stretch),
+                  painter: _OrbPainter(
+                    state: widget.state,
+                    identity: _identity,
+                    progress: widget.progress,
+                    intensity: widget.intensity,
+                    breath: breath,
+                    heartbeat: heartbeat,
+                    time: _particleController.value * math.pi * 2,
+                    sparkTime: _sparkController.value * 100,
+                    random: _random,
+                    sparks: _sparks,
+                    trail: _trailHistory,
+                    blurDx: blurDx,
+                    blurDy: blurDy,
+                    rotationAngle: _rotationAngle,
+                  ),
                 ),
               ),
             ),
@@ -164,22 +317,18 @@ class _EnhancedOrbState extends State<EnhancedOrb>
     final targetX = widget.targetPosition.dx;
     final targetY = widget.targetPosition.dy;
 
-    // Track velocity for prediction
     final dt = 0.016;
 
-    // Velocity-based prediction for smooth following
     final velX = (targetX - _prevTargetX) / dt;
     final velY = (targetY - _prevTargetY) / dt;
     _prevTargetX = targetX;
     _prevTargetY = targetY;
 
-    // Blend target with prediction for smooth following
     final followX = targetX + (velX * 0.04);
     final followY = targetY + (velY * 0.04);
 
-    // Softer spring = magnetic feel
-    final stiffness = 120.0; // Lower = softer, more lag
-    final damping = 12.0; // Lower = more overshoot
+    final stiffness = 120.0;
+    final damping = 12.0;
 
     final forceX = (followX - _currentX) * stiffness;
     final forceY = (followY - _currentY) * stiffness;
@@ -190,13 +339,22 @@ class _EnhancedOrbState extends State<EnhancedOrb>
     _currentX += _velocityX * dt;
     _currentY += _velocityY * dt;
 
-    // Store trail history for motion blur
     _trailHistory.add(Offset(_currentX, _currentY));
     if (_trailHistory.length > _trailLength) {
       _trailHistory.removeAt(0);
     }
 
     if (mounted) setState(() {});
+  }
+
+  void _updateRotation() {
+    final dx = widget.targetPosition.dx;
+    final dy = widget.targetPosition.dy;
+    if (dx.abs() > 0.5 || dy.abs() > 0.5) {
+      _targetRotation = math.atan2(dy, dx);
+    }
+    final rotationSpeed = _identity.rotationSpeed;
+    _rotationAngle += (_targetRotation - _rotationAngle) * rotationSpeed * 0.1;
   }
 
   void _updateSparks() {
@@ -208,24 +366,25 @@ class _EnhancedOrbState extends State<EnhancedOrb>
 
     _nextSparkTime -= 0.016;
     if (_nextSparkTime <= 0) {
-      final angle = _random.nextDouble() * math.pi * 2;
-      final dist = widget.size * 0.3 * _random.nextDouble();
-      _sparks.add(_Spark(
-        x: math.cos(angle) * dist,
-        y: math.sin(angle) * dist,
-        life: 1.0,
-        speed: 0.5 + _random.nextDouble() * 1.5,
-        angle: angle + (_random.nextDouble() - 0.5) * 0.5,
-        length: 3 + _random.nextDouble() * 6,
-      ));
-      _nextSparkTime = 0.05 + _random.nextDouble() * 0.15;
-
-      // Keep spark count low
-      if (_sparks.length > 8) _sparks.removeAt(0);
+      final sparkRate = _identity.sparkRate;
+      if (sparkRate > 0 && _random.nextDouble() < sparkRate) {
+        final angle = _random.nextDouble() * math.pi * 2;
+        final dist = widget.size * 0.3 * _random.nextDouble();
+        _sparks.add(_Spark(
+          x: math.cos(angle) * dist,
+          y: math.sin(angle) * dist,
+          life: 1.0,
+          speed: 0.5 + _random.nextDouble() * 1.5,
+          angle: angle + (_random.nextDouble() - 0.5) * 0.5,
+          length: 3 + _random.nextDouble() * 6,
+        ));
+        _nextSparkTime = 0.03 + _random.nextDouble() * 0.12;
+        if (_sparks.length > 10) _sparks.removeAt(0);
+      }
     }
 
     for (int i = _sparks.length - 1; i >= 0; i--) {
-      _sparks[i].life -= 0.03;
+      _sparks[i].life -= 0.04;
       _sparks[i].x += math.cos(_sparks[i].angle) * _sparks[i].speed;
       _sparks[i].y += math.sin(_sparks[i].angle) * _sparks[i].speed;
       if (_sparks[i].life <= 0) _sparks.removeAt(i);
@@ -247,6 +406,7 @@ class _Spark {
 
 class _OrbPainter extends CustomPainter {
   final OrbState state;
+  final _StateVisualIdentity identity;
   final double progress;
   final double intensity;
   final double breath;
@@ -258,9 +418,11 @@ class _OrbPainter extends CustomPainter {
   final List<Offset> trail;
   final double blurDx;
   final double blurDy;
+  final double rotationAngle;
 
   _OrbPainter({
     required this.state,
+    required this.identity,
     required this.progress,
     required this.intensity,
     required this.breath,
@@ -272,6 +434,7 @@ class _OrbPainter extends CustomPainter {
     required this.trail,
     required this.blurDx,
     required this.blurDy,
+    required this.rotationAngle,
   });
 
   @override
@@ -281,52 +444,29 @@ class _OrbPainter extends CustomPainter {
     final pulseRadius =
         baseRadius * (1.0 + breath * 0.05 + heartbeat * 0.04);
 
-    // Draw motion blur trail behind orb
     _drawMotionBlur(canvas, center, pulseRadius);
-
-    // Multi-layer volumetric glow
     _drawVolumetricGlow(canvas, center, pulseRadius);
-
-    // Animated light rays
     _drawLightRays(canvas, center, pulseRadius);
-
-    // Energy surface arcs
     _drawEnergyArcs(canvas, center, pulseRadius);
-
-    // Plasma interior
     _drawPlasma(canvas, center, pulseRadius);
-
-    // Orb core
     _drawOrbCore(canvas, center, pulseRadius);
-
-    // Dynamic reflections
     _drawReflections(canvas, center, pulseRadius);
-
-    // Progress ring
     _drawProgressRing(canvas, center, pulseRadius);
-
-    // Electrical sparks
     _drawSparks(canvas, center, pulseRadius);
 
-    // Particle system
     if (state == OrbState.idle) {
       _drawIdleParticles(canvas, center, pulseRadius);
     } else {
       _drawActiveParticles(canvas, center, pulseRadius);
     }
 
-    // Comet trail for launching
     if (state == OrbState.launching) {
       _drawCometTrail(canvas, center, pulseRadius);
     }
 
-    // Energy distortion edge
     _drawDistortionEdge(canvas, center, pulseRadius);
-
-    // Top bloom overlay
     _drawBloom(canvas, center, pulseRadius);
 
-    // Info labels
     if (state == OrbState.transferring || state == OrbState.packing) {
       _drawOverlayInfo(canvas, center, pulseRadius, size);
     }
@@ -346,7 +486,7 @@ class _OrbPainter extends CustomPainter {
           center.dy + trail[i].dy - blurDy * (1 - t),
         ),
         radius * (0.6 + t * 0.4),
-        Paint()..color = AppColors.accent.withValues(alpha: alpha),
+        Paint()..color = identity.accentColor.withValues(alpha: alpha),
       );
     }
   }
@@ -356,22 +496,20 @@ class _OrbPainter extends CustomPainter {
     final alpha = (0.12 + intensity * 0.4 + breath * 0.06 + heartbeat * 0.1)
         .clamp(0.0, 0.7);
 
-    // Layer 1: Wide diffuse glow
     canvas.drawCircle(
       center,
       glowRadius,
       Paint()
         ..shader = RadialGradient(
           colors: [
-            AppColors.accent.withValues(alpha: alpha * 0.6),
-            AppColors.primary.withValues(alpha: alpha * 0.3),
+            identity.accentColor.withValues(alpha: alpha * 0.6),
+            identity.primaryColor.withValues(alpha: alpha * 0.3),
             Colors.transparent,
           ],
           stops: const [0.0, 0.3, 1.0],
         ).createShader(Rect.fromCircle(center: center, radius: glowRadius)),
     );
 
-    // Layer 2: Inner bright glow
     canvas.drawCircle(
       center,
       radius * 2.5,
@@ -379,14 +517,13 @@ class _OrbPainter extends CustomPainter {
         ..shader = RadialGradient(
           colors: [
             Colors.white.withValues(alpha: alpha * 0.3),
-            AppColors.accent.withValues(alpha: alpha * 0.4),
+            identity.accentColor.withValues(alpha: alpha * 0.4),
             Colors.transparent,
           ],
           stops: const [0.0, 0.3, 1.0],
         ).createShader(Rect.fromCircle(center: center, radius: radius * 2.5)),
     );
 
-    // Layer 3: Pulse ring glow
     final ringPulse = (math.sin(time * 2) + 1) / 2;
     canvas.drawCircle(
       center,
@@ -394,7 +531,7 @@ class _OrbPainter extends CustomPainter {
       Paint()
         ..shader = RadialGradient(
           colors: [
-            AppColors.accent.withValues(alpha: 0.15 * ringPulse * intensity),
+            identity.accentColor.withValues(alpha: 0.15 * ringPulse * intensity),
             Colors.transparent,
           ],
           stops: const [0.0, 1.0],
@@ -410,6 +547,7 @@ class _OrbPainter extends CustomPainter {
 
     canvas.save();
     canvas.translate(center.dx, center.dy);
+    canvas.rotate(rotationAngle);
 
     for (int i = 0; i < rayCount; i++) {
       final angle = (i / rayCount) * math.pi * 2 + time * 0.15;
@@ -421,8 +559,8 @@ class _OrbPainter extends CustomPainter {
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
           colors: [
-            AppColors.accent.withValues(alpha: rayAlpha),
-            AppColors.primary.withValues(alpha: rayAlpha * 0.5),
+            identity.accentColor.withValues(alpha: rayAlpha),
+            identity.primaryColor.withValues(alpha: rayAlpha * 0.5),
             Colors.transparent,
           ],
         ).createShader(const Rect.fromLTWH(0, -2, 120, 4));
@@ -438,11 +576,12 @@ class _OrbPainter extends CustomPainter {
     if (state == OrbState.idle && intensity < 0.1) return;
 
     final arcCount = 3;
+    final arcIntensity = identity.arcIntensity;
     for (int i = 0; i < arcCount; i++) {
-      final arcAngle = time * (0.5 + i * 0.2) + (i / arcCount) * math.pi * 2;
+      final arcAngle = time * (0.5 + i * 0.2) + (i / arcCount) * math.pi * 2 + rotationAngle;
       final arcLength = 0.8 + math.sin(time * 0.7 + i) * 0.3;
       final arcAlpha =
-          (0.15 + intensity * 0.2 + breath * 0.05).clamp(0.0, 0.5);
+          (0.15 * arcIntensity + intensity * 0.2 * arcIntensity + breath * 0.05).clamp(0.0, 0.5);
       final arcRadius = radius * (1.05 + math.sin(time + i) * 0.03);
 
       final arcPaint = Paint()
@@ -450,9 +589,9 @@ class _OrbPainter extends CustomPainter {
           startAngle: arcAngle,
           endAngle: arcAngle + arcLength,
           colors: [
-            AppColors.accent.withValues(alpha: arcAlpha),
-            AppColors.primary.withValues(alpha: arcAlpha * 0.6),
-            AppColors.success.withValues(alpha: arcAlpha * 0.3),
+            identity.accentColor.withValues(alpha: arcAlpha),
+            identity.primaryColor.withValues(alpha: arcAlpha * 0.6),
+            identity.glowColor.withValues(alpha: arcAlpha * 0.3),
             Colors.transparent,
           ],
           stops: const [0.0, 0.5, 0.8, 1.0],
@@ -473,8 +612,8 @@ class _OrbPainter extends CustomPainter {
 
   void _drawPlasma(Canvas canvas, Offset center, double radius) {
     final coreRadius = radius * 0.85;
+    final plasmaSpeed = identity.plasmaSpeed;
 
-    // Base gradient
     canvas.drawCircle(
       center,
       coreRadius,
@@ -482,18 +621,17 @@ class _OrbPainter extends CustomPainter {
         ..shader = RadialGradient(
           colors: [
             Colors.white.withValues(alpha: 0.9),
-            AppColors.accent.withValues(alpha: 0.7),
-            AppColors.primary.withValues(alpha: 0.6),
-            AppColors.secondary.withValues(alpha: 0.4),
+            identity.accentColor.withValues(alpha: 0.7),
+            identity.primaryColor.withValues(alpha: 0.6),
+            identity.glowColor.withValues(alpha: 0.4),
           ],
           stops: const [0.0, 0.25, 0.55, 1.0],
         ).createShader(Rect.fromCircle(center: center, radius: coreRadius)),
     );
 
-    // Animated plasma swirls (multiple overlapping sine-wave circles)
     final swirlCount = 5;
     for (int i = 0; i < swirlCount; i++) {
-      final swirlAngle = time * (0.3 + i * 0.15) + (i / swirlCount) * math.pi * 2;
+      final swirlAngle = time * plasmaSpeed * (0.3 + i * 0.15) + (i / swirlCount) * math.pi * 2 + rotationAngle;
       final swirlDist = coreRadius * 0.4 + math.sin(time * 0.7 + i * 1.3) * coreRadius * 0.2;
       final swirlRadius =
           coreRadius * (0.3 + math.sin(time * 0.5 + i * 0.9) * 0.15);
@@ -508,7 +646,7 @@ class _OrbPainter extends CustomPainter {
         Paint()
           ..shader = RadialGradient(
             colors: [
-              AppColors.accent.withValues(alpha: swirlAlpha * 1.5),
+              identity.accentColor.withValues(alpha: swirlAlpha * 1.5),
               Colors.transparent,
             ],
           ).createShader(Rect.fromCircle(
@@ -516,7 +654,6 @@ class _OrbPainter extends CustomPainter {
       );
     }
 
-    // Inner bright core
     canvas.drawCircle(
       center,
       coreRadius * 0.25,
@@ -538,7 +675,6 @@ class _OrbPainter extends CustomPainter {
             : 1.0;
     final coreRadius = radius * (0.5 + fillProgress * 0.3);
 
-    // Edge darkening ring
     canvas.drawCircle(
       center,
       coreRadius * 1.05,
@@ -546,7 +682,7 @@ class _OrbPainter extends CustomPainter {
         ..shader = RadialGradient(
           colors: [
             Colors.transparent,
-            AppColors.secondary.withValues(alpha: 0.3 * (1 - fillProgress)),
+            identity.primaryColor.withValues(alpha: 0.3 * (1 - fillProgress)),
           ],
           stops: const [0.7, 1.0],
         ).createShader(Rect.fromCircle(center: center, radius: coreRadius * 1.05)),
@@ -554,8 +690,7 @@ class _OrbPainter extends CustomPainter {
   }
 
   void _drawReflections(Canvas canvas, Offset center, double radius) {
-    // Moving specular highlight
-    final highlightAngle = time * 0.4;
+    final highlightAngle = time * 0.4 + rotationAngle;
     final hx = center.dx + math.cos(highlightAngle) * radius * 0.3;
     final hy = center.dy + math.sin(highlightAngle) * radius * 0.3;
 
@@ -572,7 +707,6 @@ class _OrbPainter extends CustomPainter {
             Rect.fromCircle(center: Offset(hx, hy), radius: radius * 0.2)),
     );
 
-    // Secondary smaller highlight
     final h2Angle = highlightAngle + 2.5;
     final h2x = center.dx + math.cos(h2Angle) * radius * 0.5;
     final h2y = center.dy + math.sin(h2Angle) * radius * 0.4;
@@ -595,14 +729,13 @@ class _OrbPainter extends CustomPainter {
 
     final ringRadius = radius * 1.3;
     final ringPaint = Paint()
-      ..color = AppColors.accent.withValues(alpha: 0.2)
+      ..color = identity.primaryColor.withValues(alpha: 0.2)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
 
     canvas.drawCircle(center, ringRadius, ringPaint);
 
     if (progress > 0) {
-      // Animated dash on progress ring
       final dashAngle = time % (math.pi * 2);
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: ringRadius),
@@ -618,7 +751,7 @@ class _OrbPainter extends CustomPainter {
 
       final progressPaint = Paint()
         ..shader = SweepGradient(
-          colors: const [AppColors.primary, AppColors.accent, AppColors.success],
+          colors: [identity.primaryColor, identity.accentColor, identity.glowColor],
           stops: [0.0, progress * 0.7, progress],
         ).createShader(Rect.fromCircle(center: center, radius: ringRadius))
         ..style = PaintingStyle.stroke
@@ -643,7 +776,6 @@ class _OrbPainter extends CustomPainter {
       final sy = center.dy + spark.y;
       final alpha = spark.life * 0.8;
 
-      // Spark line
       final ex = sx + math.cos(spark.angle) * spark.length;
       final ey = sy + math.sin(spark.angle) * spark.length;
 
@@ -656,25 +788,54 @@ class _OrbPainter extends CustomPainter {
           ..strokeCap = StrokeCap.round,
       );
 
-      // Spark glow
       canvas.drawCircle(
         Offset(sx, sy),
         spark.life * 2,
         Paint()
-          ..color = AppColors.accent.withValues(alpha: alpha * 0.3)
+          ..color = identity.accentColor.withValues(alpha: alpha * 0.3)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
       );
+    }
+
+    // State-specific enhanced electricity
+    if (state == OrbState.packing || state == OrbState.launching) {
+      if (random.nextDouble() < 0.3) {
+        final startAngle = random.nextDouble() * math.pi * 2;
+        final endAngle = startAngle + (random.nextDouble() - 0.5) * 0.8;
+        final startDist = radius * 0.6;
+        final endDist = radius * (0.7 + random.nextDouble() * 0.3);
+        final sx = center.dx + math.cos(startAngle) * startDist;
+        final sy = center.dy + math.sin(startAngle) * startDist;
+        final ex = center.dx + math.cos(endAngle) * endDist;
+        final ey = center.dy + math.sin(endAngle) * endDist;
+
+        final path = Path();
+        path.moveTo(sx, sy);
+        for (int i = 1; i < 4; i++) {
+          final midX = (sx + ex) / 2 + (random.nextDouble() - 0.5) * radius * 0.3;
+          final midY = (sy + ey) / 2 + (random.nextDouble() - 0.5) * radius * 0.3;
+          path.lineTo(midX, midY);
+        }
+        path.lineTo(ex, ey);
+
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = Colors.white.withValues(alpha: 0.6)
+            ..strokeWidth = 1.0
+            ..style = PaintingStyle.stroke,
+        );
+      }
     }
   }
 
   void _drawIdleParticles(Canvas canvas, Offset center, double radius) {
     final count = 16;
     for (int i = 0; i < count; i++) {
-      final angle = (i / count) * math.pi * 2 + time * 0.2 + breath * 0.3;
+      final angle = (i / count) * math.pi * 2 + time * 0.2 + breath * 0.3 + rotationAngle;
       final orbitRadius =
           radius * (1.2 + math.sin(time * 0.5 + i * 1.1) * 0.15);
 
-      // Z-depth simulation: varying sizes based on distance
       final zPhase = math.sin(time * 0.3 + i * 2.3);
       final layerScale = 0.7 + (zPhase + 1) * 0.15;
       final dist = orbitRadius * layerScale;
@@ -686,7 +847,7 @@ class _OrbPainter extends CustomPainter {
         Offset(px, py),
         particleSize,
         Paint()
-          ..color = AppColors.primary
+          ..color = identity.primaryColor
               .withValues(alpha: 0.25 + math.sin(time + i) * 0.08),
       );
     }
@@ -697,11 +858,10 @@ class _OrbPainter extends CustomPainter {
     final magnetStrength = intensity;
 
     for (int i = 0; i < count; i++) {
-      final angle = (i / count) * math.pi * 2 + time * (0.7 + intensity * 0.4);
+      final angle = (i / count) * math.pi * 2 + time * (0.7 + intensity * 0.4) + rotationAngle;
       final orbitDist =
           radius * 0.6 + math.sin(time * 1.3 + i * 2.1) * radius * 0.35;
 
-      // Magnetic pull toward center when hand is close
       final pullFactor = 1.0 - magnetStrength * 0.3;
       final dist = orbitDist * pullFactor;
 
@@ -712,7 +872,7 @@ class _OrbPainter extends CustomPainter {
           (0.35 + math.sin(time * 2 + i * 1.7) * 0.2 + intensity * 0.3)
               .clamp(0.0, 1.0);
 
-      final colors = [AppColors.accent, AppColors.primary, AppColors.success];
+      final colors = [identity.accentColor, identity.primaryColor, identity.glowColor];
       final color = colors[i % colors.length];
 
       canvas.drawCircle(
@@ -725,7 +885,6 @@ class _OrbPainter extends CustomPainter {
       );
     }
 
-    // Inward spiral trail for packing/carrying
     if (state == OrbState.packing || state == OrbState.carrying) {
       final trailCount = 14;
       for (int i = 0; i < trailCount; i++) {
@@ -739,15 +898,14 @@ class _OrbPainter extends CustomPainter {
         canvas.drawCircle(
           Offset(px, py),
           2.5 * (1 - t) + 0.5,
-          Paint()..color = AppColors.accent.withValues(alpha: tAlpha),
+          Paint()..color = identity.accentColor.withValues(alpha: tAlpha),
         );
 
-        // Glow around trail particles
         canvas.drawCircle(
           Offset(px, py),
           5 * (1 - t),
           Paint()
-            ..color = AppColors.primary.withValues(alpha: tAlpha * 0.2)
+            ..color = identity.primaryColor.withValues(alpha: tAlpha * 0.2)
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
         );
       }
@@ -758,7 +916,7 @@ class _OrbPainter extends CustomPainter {
     final trailLen = 18;
     for (int i = 0; i < trailLen; i++) {
       final t = i / trailLen;
-      final angle = -math.pi / 2 + t * 0.5;
+      final angle = -math.pi / 2 + t * 0.5 + rotationAngle;
       final dist = radius * 0.7 + t * t * radius * 4;
       final px = center.dx + math.cos(angle) * dist;
       final py = center.dy + math.sin(angle) * dist;
@@ -768,14 +926,14 @@ class _OrbPainter extends CustomPainter {
       canvas.drawCircle(
         Offset(px, py),
         size,
-        Paint()..color = AppColors.accent.withValues(alpha: alpha),
+        Paint()..color = identity.accentColor.withValues(alpha: alpha),
       );
 
       canvas.drawCircle(
         Offset(px, py),
         size * 4,
         Paint()
-          ..color = AppColors.primary.withValues(alpha: alpha * 0.15)
+          ..color = identity.primaryColor.withValues(alpha: alpha * 0.15)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
       );
     }
@@ -806,7 +964,7 @@ class _OrbPainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = AppColors.accent.withValues(alpha: edgeAlpha)
+        ..color = identity.accentColor.withValues(alpha: edgeAlpha)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
@@ -823,7 +981,7 @@ class _OrbPainter extends CustomPainter {
       Paint()
         ..shader = RadialGradient(
           colors: [
-            AppColors.accent.withValues(alpha: bloomAlpha),
+            identity.accentColor.withValues(alpha: bloomAlpha),
             Colors.transparent,
           ],
           stops: const [0.0, 1.0],
@@ -831,7 +989,6 @@ class _OrbPainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
     );
 
-    // Error state: red bloom
     if (state == OrbState.error) {
       canvas.drawCircle(
         center,
@@ -847,7 +1004,6 @@ class _OrbPainter extends CustomPainter {
       );
     }
 
-    // Completed state: green bloom
     if (state == OrbState.completed) {
       canvas.drawCircle(
         center,
@@ -855,7 +1011,7 @@ class _OrbPainter extends CustomPainter {
         Paint()
           ..shader = RadialGradient(
             colors: [
-              AppColors.success.withValues(alpha: 0.15 + heartbeat * 0.1),
+              identity.accentColor.withValues(alpha: 0.15 + heartbeat * 0.1),
               Colors.transparent,
             ],
           ).createShader(Rect.fromCircle(center: center, radius: radius * 2))
@@ -866,7 +1022,6 @@ class _OrbPainter extends CustomPainter {
 
   void _drawOverlayInfo(
       Canvas canvas, Offset center, double radius, Size size) {
-    // Small text labels rendered above orb
     final textPainter = TextPainter(
       text: TextSpan(
         text: '${(progress * 100).toInt()}%',
@@ -888,6 +1043,7 @@ class _OrbPainter extends CustomPainter {
   @override
   bool shouldRepaint(_OrbPainter old) =>
       state != old.state ||
+      identity != old.identity ||
       progress != old.progress ||
       intensity != old.intensity ||
       breath != old.breath ||
@@ -895,5 +1051,6 @@ class _OrbPainter extends CustomPainter {
       time != old.time ||
       blurDx != old.blurDx ||
       blurDy != old.blurDy ||
+      rotationAngle != old.rotationAngle ||
       sparks.length != old.sparks.length;
 }
