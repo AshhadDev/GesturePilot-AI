@@ -15,8 +15,7 @@ class CameraPreviewWidget extends StatefulWidget {
   final String currentStateLabel;
   final void Function(GestureResult)? onHandDetected;
   final VoidCallback? onHandLost;
-  final void Function(GestureResult)? onFistDetected;
-  final VoidCallback? onFistLost;
+  final void Function(GestureResult)? onFrameProcessed;
   final void Function(double)? onConfidenceUpdate;
   final void Function(double, double)? onHandPosition;
 
@@ -28,8 +27,7 @@ class CameraPreviewWidget extends StatefulWidget {
     this.currentStateLabel = 'idle',
     this.onHandDetected,
     this.onHandLost,
-    this.onFistDetected,
-    this.onFistLost,
+    this.onFrameProcessed,
     this.onConfidenceUpdate,
     this.onHandPosition,
   });
@@ -44,7 +42,6 @@ class _CameraPreviewWidgetState extends State<CameraPreviewWidget>
   final _service = MediapipeService.instance;
   String? _error;
   bool _handDetected = false;
-  bool _fistDetected = false;
   GestureResult? _lastResult;
 
   bool _isProcessing = false;
@@ -82,9 +79,7 @@ class _CameraPreviewWidgetState extends State<CameraPreviewWidget>
     _initAttempted = true;
 
     if (_cameraService.isInitialized) {
-      if (!_isDisposed && mounted) {
-        _startImageProcessing();
-      }
+      if (!_isDisposed && mounted) _startImageProcessing();
       return;
     }
 
@@ -97,9 +92,7 @@ class _CameraPreviewWidgetState extends State<CameraPreviewWidget>
       return;
     }
 
-    if (!_isDisposed && mounted) {
-      _startImageProcessing();
-    }
+    if (!_isDisposed && mounted) _startImageProcessing();
   }
 
   void _startImageProcessing() {
@@ -119,51 +112,37 @@ class _CameraPreviewWidgetState extends State<CameraPreviewWidget>
 
       _lastResult = result;
 
-      if (!_isDisposed && mounted) {
-        setState(() {});
-      }
-
+      // ---- Per-frame raw result (receiver, debug, etc.) ------------------
+      widget.onFrameProcessed?.call(result);
       if (_isDisposed || !mounted) return;
 
-      final handNow = result.isHandDetected;
-      final fistNow = handNow && result.isFist;
+      // ---- Detect transitions based on reliable open hand ----------------
+      // Reliable = stage2 + stage3 + openHandScore >= 0.70 + 5 consecutive frames
+      final bool nowDetected = result.isHandDetected &&
+          result.stage2Passed &&
+          result.stage3Passed &&
+          result.openHandScore >= 0.70 &&
+          result.consecutiveOpenHandFrames >= 5;
 
-      // Hand appeared
-      if (handNow && !_handDetected) {
+      if (nowDetected && !_handDetected) {
         _handDetected = true;
         widget.onHandDetected?.call(result);
-      }
-
-      if (_isDisposed || !mounted) return;
-
-      // Hand disappeared
-      if (!handNow && _handDetected) {
-        _handDetected = false;
-        _fistDetected = false;
-        widget.onHandLost?.call();
+        if (_isDisposed || !mounted) return;
+        setState(() {});
         return;
       }
 
-      if (_isDisposed || !mounted) return;
-
-      // Fist appeared (hand must be present)
-      if (fistNow && !_fistDetected) {
-        _fistDetected = true;
-        widget.onFistDetected?.call(result);
+      if (!nowDetected && _handDetected && result.handLostFrames >= 10) {
+        _handDetected = false;
+        widget.onHandLost?.call();
+        if (_isDisposed || !mounted) return;
+        setState(() {});
+        return;
       }
 
+      // ---- Per-frame updates (smooth orb animation) --------------------
       if (_isDisposed || !mounted) return;
-
-      // Fist disappeared (but hand still present)
-      if (!fistNow && _fistDetected) {
-        _fistDetected = false;
-        widget.onFistLost?.call();
-      }
-
-      if (_isDisposed || !mounted) return;
-
-      // Per-frame updates while hand is present
-      if (handNow) {
+      if (nowDetected) {
         widget.onConfidenceUpdate?.call(result.confidence);
         if (result.landmarks != null && result.landmarks!.isNotEmpty) {
           final wrist = result.landmarks![0];
@@ -199,7 +178,8 @@ class _CameraPreviewWidgetState extends State<CameraPreviewWidget>
         children: [
           if (_error != null)
             _buildError()
-          else if (!_cameraService.isAvailable)
+          else if (_cameraService.controller == null ||
+              !_cameraService.controller!.value.isInitialized)
             _buildLoading()
           else
             CameraPreview(_cameraService.controller!),
@@ -224,13 +204,7 @@ class _CameraPreviewWidgetState extends State<CameraPreviewWidget>
             lastResult: _lastResult,
             isVisible: widget.debugMode,
             fps: _service.fps,
-            handFrames: _service.handFrames,
-            fistFrames: _service.fistFrames,
-            lostFrames: _service.lostFrames,
             currentState: widget.currentStateLabel,
-            trackingId: _service.trackingId,
-            consecutiveOpenPalmFrames: _service.consecutiveOpenPalmFrames,
-            consecutiveFistFrames: _service.consecutiveFistFrames,
           ),
           ..._buildScanCorners(),
           if (widget.showGlow)
@@ -244,8 +218,7 @@ class _CameraPreviewWidgetState extends State<CameraPreviewWidget>
                   gradient: const LinearGradient(
                     colors: [AppColors.primary, AppColors.accent, AppColors.primary],
                   ),
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(20)),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
                 ),
               ),
             ),
@@ -271,11 +244,9 @@ class _CameraPreviewWidgetState extends State<CameraPreviewWidget>
   Widget _buildLoading() {
     return const Center(
       child: SizedBox(
-        width: 24,
-        height: 24,
+        width: 24, height: 24,
         child: CircularProgressIndicator(
-          strokeWidth: 2,
-          color: AppColors.primary,
+          strokeWidth: 2, color: AppColors.primary,
         ),
       ),
     );
@@ -286,13 +257,11 @@ class _CameraPreviewWidgetState extends State<CameraPreviewWidget>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.videocam_off_rounded,
-              color: AppColors.textSecondary, size: 28),
+          const Icon(Icons.videocam_off_rounded, color: AppColors.textSecondary, size: 28),
           const SizedBox(height: 4),
           Text(
             _error!,
-            style:
-                const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+            style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
             textAlign: TextAlign.center,
           ),
         ],
@@ -336,11 +305,9 @@ class _CornerPainter extends CustomPainter {
       ..color = AppColors.primary
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke;
-
     const len = 22.0;
     final w = size.width;
     final h = size.height;
-
     switch (alignment) {
       case CornerAlignment.topLeft:
         canvas.drawLine(const Offset(0, len), Offset.zero, paint);

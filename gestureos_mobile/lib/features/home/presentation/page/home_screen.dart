@@ -3,13 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gesture_os/core/theme/app_colors.dart';
 import 'package:gesture_os/core/widgets/bottom_nav_bar.dart';
-import 'package:gesture_os/core/widgets/transfer_card.dart';
 import 'package:gesture_os/core/widgets/statistic_card.dart';
 import 'package:gesture_os/core/widgets/connection_badge.dart';
-import 'package:gesture_os/shared/models/mock_data.dart';
 import 'package:gesture_os/features/home/presentation/widgets/magic_transfer_button.dart';
 import 'package:gesture_os/features/devices/presentation/page/devices_screen.dart';
 import 'package:gesture_os/features/settings/presentation/page/settings_screen.dart';
+import 'package:gesture_os/core/services/device_info_service.dart';
+import 'package:gesture_os/shared/services/clipboard_service.dart';
 
 /// Main dashboard screen after onboarding.
 class HomeScreen extends ConsumerStatefulWidget {
@@ -24,6 +24,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   int _navIndex = 0;
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
+  String? _localDeviceName;
 
   @override
   void initState() {
@@ -37,6 +38,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       curve: Curves.easeOut,
     );
     _fadeController.forward();
+    _loadDeviceName();
+    ClipboardSyncService.instance.startWatching();
+  }
+
+  Future<void> _loadDeviceName() async {
+    final info = await DeviceInfoService.instance.getInfo();
+    if (mounted) setState(() => _localDeviceName = info.name);
   }
 
   @override
@@ -105,21 +113,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 100),
-              sliver: SliverList.builder(
-                itemCount: MockData.recentTransfers.length,
-                itemBuilder: (context, index) {
-                  final t = MockData.recentTransfers[index];
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: TransferCard(
-                      fileName: t.fileName,
-                      deviceName: t.deviceName,
-                      time: t.time,
-                      size: t.size,
-                      isSuccess: t.isSuccess,
-                    ),
-                  );
-                },
+              sliver: SliverToBoxAdapter(
+                child: _buildNoTransfers(),
               ),
             ),
           ],
@@ -149,21 +144,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(24, 16, 24, 100),
-            sliver: SliverList.builder(
-              itemCount: MockData.recentTransfers.length,
-              itemBuilder: (context, index) {
-                final t = MockData.recentTransfers[index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: TransferCard(
-                    fileName: t.fileName,
-                    deviceName: t.deviceName,
-                    time: t.time,
-                    size: t.size,
-                    isSuccess: t.isSuccess,
-                  ),
-                );
-              },
+            sliver: SliverToBoxAdapter(
+              child: _buildNoTransfers(),
             ),
           ),
         ],
@@ -250,7 +232,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'MacBook Pro',
+                  _localDeviceName ?? 'GestureOS',
                   style: GoogleFonts.poppins(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -259,7 +241,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Connected via Wi-Fi',
+                  'Ready to transfer',
                   style: GoogleFonts.poppins(
                     fontSize: 12,
                     color: AppColors.textSecondary,
@@ -279,19 +261,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       children: [
         StatisticCard(
           label: 'Files Sent',
-          value: '128',
+          value: '0',
           icon: Icons.file_copy_rounded,
         ),
         SizedBox(width: 12),
         StatisticCard(
           label: 'Devices',
-          value: '3',
+          value: '0',
           icon: Icons.devices_rounded,
         ),
         SizedBox(width: 12),
         StatisticCard(
           label: 'Last Transfer',
-          value: '2m',
+          value: '--',
           icon: Icons.schedule_rounded,
         ),
       ],
@@ -305,6 +287,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         fontSize: 18,
         fontWeight: FontWeight.w600,
         color: AppColors.textPrimary,
+      ),
+    );
+  }
+
+  Widget _buildNoTransfers() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(
+              Icons.inbox_rounded,
+              color: AppColors.textSecondary.withValues(alpha: 0.5),
+              size: 40,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No transfers yet',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

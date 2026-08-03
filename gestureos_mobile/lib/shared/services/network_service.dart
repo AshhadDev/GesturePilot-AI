@@ -160,6 +160,12 @@ class NetworkService {
     AppLogger.info('NetworkService server stopped');
   }
 
+  /// Called after device name change. No connection restart needed;
+  /// new connections will use the updated name from DeviceInfoService.
+  void notifyNameChange(String newName) {
+    AppLogger.info('NetworkService notified of name change: $newName');
+  }
+
   Future<void> dispose() async {
     await stopServer();
     await _incomingController.close();

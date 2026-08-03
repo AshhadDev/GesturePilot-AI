@@ -1,27 +1,27 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:gestureos_desktop/app/router/route_names.dart';
 import 'package:gestureos_desktop/core/theme/app_colors.dart';
 import 'package:gestureos_desktop/core/theme/app_dimensions.dart';
-import 'package:gestureos_desktop/core/widgets/glowing_orb.dart';
+import 'package:gestureos_desktop/core/widgets/live_receiver_orb.dart';
+import 'package:gestureos_desktop/core/widgets/waiting_banner.dart';
+import 'package:gestureos_desktop/shared/providers/app_providers.dart';
+import 'package:gestureos_desktop/shared/services/connection_manager.dart';
 
-class WaitingScreen extends StatefulWidget {
+class WaitingScreen extends ConsumerStatefulWidget {
   const WaitingScreen({super.key});
 
   @override
-  State<WaitingScreen> createState() => _WaitingScreenState();
+  ConsumerState<WaitingScreen> createState() => _WaitingScreenState();
 }
 
-class _WaitingScreenState extends State<WaitingScreen>
+class _WaitingScreenState extends ConsumerState<WaitingScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _bgController;
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnimation;
-  int _dots = 0;
-  Timer? _dotsTimer;
 
   @override
   void initState() {
@@ -40,22 +40,21 @@ class _WaitingScreenState extends State<WaitingScreen>
       curve: Curves.easeOut,
     );
     _fadeController.forward();
-
-    _dotsTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      if (mounted) setState(() => _dots = (_dots + 1) % 4);
-    });
   }
 
   @override
   void dispose() {
     _bgController.dispose();
     _fadeController.dispose();
-    _dotsTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final snapshot =
+        ref.watch(connectionSnapshotProvider).valueOrNull ??
+            const ConnectionSnapshot(phase: ConnectionPhase.searching);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: FadeTransition(
@@ -76,30 +75,45 @@ class _WaitingScreenState extends State<WaitingScreen>
                 ),
               ),
               child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const GlowingOrb(size: 240),
-                    const SizedBox(height: AppDimensions.spacingXxl),
-                    Text(
-                      'Waiting for files${'.' * _dots}',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(AppDimensions.spacingXxl),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      LiveReceiverOrb(
+                        size: 240,
+                        phase: snapshot.phase,
+                        progress: snapshot.transferProgress,
                       ),
-                    ),
-                    const SizedBox(height: AppDimensions.spacingMd),
-                    const Text(
-                      'Make a gesture on your phone to start the transfer',
-                      style: TextStyle(
-                        fontSize: 15,
-                        color: AppColors.textSecondary,
+                      const SizedBox(height: AppDimensions.spacingXxl),
+                      Text(
+                        snapshot.statusText,
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: AppDimensions.spacingXxl * 2),
-                    _buildCancelButton(),
-                  ],
+                      const SizedBox(height: AppDimensions.spacingSm),
+                      const Text(
+                        'Make a gesture on your phone to start the transfer',
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: AppDimensions.spacingXl),
+                      SizedBox(
+                        width: 480,
+                        child: WaitingBanner(
+                          phase: snapshot.phase,
+                          progress: snapshot.transferProgress,
+                        ),
+                      ),
+                      const SizedBox(height: AppDimensions.spacingXxl * 2),
+                      _buildCancelButton(),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -125,7 +139,7 @@ class _WaitingScreenState extends State<WaitingScreen>
             border: Border.all(color: AppColors.border, width: 1),
           ),
           child: const Text(
-            'Cancel',
+            'Back to Home',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,

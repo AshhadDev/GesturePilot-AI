@@ -229,7 +229,7 @@ class ErrorAnimation extends StatefulWidget {
 }
 
 class _ErrorAnimationState extends State<ErrorAnimation>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _shakeController;
   late final AnimationController _glowController;
 

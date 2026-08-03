@@ -17,6 +17,8 @@ class TransferProgressScreen extends ConsumerStatefulWidget {
 
 class _TransferProgressScreenState
     extends ConsumerState<TransferProgressScreen> {
+  bool _navigated = false;
+
   @override
   Widget build(BuildContext context) {
     final transfer = ref.watch(transferProvider);
@@ -31,8 +33,9 @@ class _TransferProgressScreenState
     final errMsg = transfer.transferError;
     final isPaused = transfer.isPaused;
 
-    if (transfer.status == TransferState.success) {
-      Future.microtask(() {
+    if (transfer.status == TransferState.success && !_navigated) {
+      _navigated = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) context.goNamed(RouteNames.transferSuccess);
       });
     }

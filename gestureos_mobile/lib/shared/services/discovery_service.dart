@@ -214,6 +214,15 @@ class DiscoveryService {
     }
   }
 
+  /// Called after device name change to immediately re-broadcast.
+  Future<void> notifyNameChange(String newName) async {
+    try {
+      final info = await DeviceInfoService.instance.getInfo();
+      _localDeviceId = info.id;
+    } catch (_) {}
+    _broadcastDiscovery();
+  }
+
   /// Returns the latest battery level for a discovered device.
   int getBatteryLevel(String deviceId) => _batteryLevels[deviceId] ?? -1;
 

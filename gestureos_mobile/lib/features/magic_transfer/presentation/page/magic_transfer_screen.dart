@@ -11,7 +11,6 @@ import 'package:gesture_os/core/widgets/success_celebration.dart';
 import 'package:gesture_os/features/magic_transfer/presentation/widgets/camera_preview_widget.dart';
 import 'package:gesture_os/features/magic_transfer/presentation/widgets/debug_simulation_button.dart';
 import 'package:gesture_os/features/magic_transfer/presentation/widgets/gesture_confidence_indicator.dart';
-import 'package:gesture_os/features/magic_transfer/presentation/widgets/hold_progress_ring.dart';
 import 'package:gesture_os/features/magic_transfer/providers/magic_pickup_provider.dart';
 import 'package:gesture_os/shared/providers/transfer_provider.dart';
 
@@ -45,14 +44,13 @@ class _MagicTransferScreenState extends ConsumerState<MagicTransferScreen>
   @override
   void dispose() {
     _fadeController.dispose();
-    final pickup = ref.read(magicPickupProvider.notifier);
-    if (pickup.mounted) pickup.resetToIdle();
     super.dispose();
   }
 
   void _onContinue() {
     final state = ref.read(magicPickupProvider);
     if (state.isPacked) {
+      ref.read(magicPickupProvider.notifier).transitionToCarrying();
       ref.read(transferProvider.notifier).setStatus(TransferState.carrying);
       context.goNamed(RouteNames.carrying);
     }
@@ -75,17 +73,13 @@ class _MagicTransferScreenState extends ConsumerState<MagicTransferScreen>
               _buildHeader(pickup.step),
               const SizedBox(height: 16),
               CameraPreviewWidget(
-                showGlow: pickup.isOpenHandDetected || pickup.isFistConfirmed,
+                showGlow: pickup.isOpenHandDetected || pickup.isHandConfirmed,
                 debugMode: pickup.isDebugMode,
                 currentStateLabel: _headerLabel(pickup.step),
                 onHandDetected: (result) =>
                     ref.read(magicPickupProvider.notifier).onHandDetected(result),
                 onHandLost: () =>
                     ref.read(magicPickupProvider.notifier).onHandLost(),
-                onFistDetected: (result) =>
-                    ref.read(magicPickupProvider.notifier).onFistDetected(result),
-                onFistLost: () =>
-                    ref.read(magicPickupProvider.notifier).onFistLost(),
                 onConfidenceUpdate: (confidence) =>
                     ref.read(magicPickupProvider.notifier).updateConfidence(confidence),
                 onHandPosition: (x, y) =>
@@ -94,7 +88,7 @@ class _MagicTransferScreenState extends ConsumerState<MagicTransferScreen>
               const SizedBox(height: 16),
               Expanded(child: _buildBody(pickup, fileCount, files)),
               DebugSimulationButton(),
-              if (pickup.isComplete) _buildContinueButton(),
+              if (pickup.isPacked) _buildContinueButton(),
               const SizedBox(height: 24),
             ],
           ),
@@ -146,13 +140,14 @@ class _MagicTransferScreenState extends ConsumerState<MagicTransferScreen>
       case MagicPickupStep.idle:
         return 'Magic Transfer';
       case MagicPickupStep.openHandDetected:
+      case MagicPickupStep.handConfirmed:
         return 'Hand Detected';
-      case MagicPickupStep.fistConfirmed:
-        return 'Hold Steady';
       case MagicPickupStep.packing:
         return 'Packing Files';
       case MagicPickupStep.packed:
         return 'Files Packed';
+      case MagicPickupStep.carrying:
+        return 'Carrying';
     }
   }
 
@@ -161,13 +156,14 @@ class _MagicTransferScreenState extends ConsumerState<MagicTransferScreen>
       case MagicPickupStep.idle:
         return _buildIdleState(pickup, files);
       case MagicPickupStep.openHandDetected:
-        return _buildOpenHandDetectedState(pickup, files);
-      case MagicPickupStep.fistConfirmed:
-        return _buildFistConfirmedState(pickup);
+      case MagicPickupStep.handConfirmed:
+        return _buildHandDetectedState(pickup, files);
       case MagicPickupStep.packing:
         return _buildPackingState(pickup, fileCount, files);
       case MagicPickupStep.packed:
         return _buildPackedState();
+      case MagicPickupStep.carrying:
+        return _buildCarryingState();
     }
   }
 
@@ -226,9 +222,9 @@ class _MagicTransferScreenState extends ConsumerState<MagicTransferScreen>
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Text(
+                        const Text(
                           'Hold your open palm in front of the camera\nto begin the magic pickup',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
                             color: AppColors.textSecondary,
                           ),
@@ -245,7 +241,7 @@ class _MagicTransferScreenState extends ConsumerState<MagicTransferScreen>
     );
   }
 
-  Widget _buildOpenHandDetectedState(MagicPickupState pickup, List<dynamic> files) {
+  Widget _buildHandDetectedState(MagicPickupState pickup, List<dynamic> files) {
     return SingleChildScrollView(
       child: Column(
         children: [
@@ -311,7 +307,7 @@ class _MagicTransferScreenState extends ConsumerState<MagicTransferScreen>
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Text(
-                              'Ready',
+                              'Hold steady',
                               style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.success),
                             ),
                           ),
@@ -319,112 +315,7 @@ class _MagicTransferScreenState extends ConsumerState<MagicTransferScreen>
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'Close your hand to pack your files into the orb',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFistConfirmedState(MagicPickupState pickup) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          EnhancedOrb(
-            size: 100,
-            state: OrbState.active,
-            intensity: pickup.confidence,
-            targetPosition: Offset(pickup.handX, pickup.handY),
-          ),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              GestureConfidenceIndicator(
-                confidence: pickup.confidence,
-                label: 'Gesture Confidence',
-              ),
-              const SizedBox(width: 24),
-              Column(
-                children: [
-                  const Text(
-                    'Hold',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  HoldProgressRing(
-                    progress: pickup.holdProgress,
-                    size: 60,
-                    strokeWidth: 4,
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.card,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.electric_bolt_rounded, color: AppColors.accent, size: 24),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Text(
-                            'Hold your fist steady',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Text(
-                              'Packing',
-                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.accent),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Keep your fist closed to pack files into the orb',
+                        'Keep your hand still to start packing',
                         style: TextStyle(
                           fontSize: 13,
                           color: AppColors.textSecondary,
@@ -559,7 +450,7 @@ class _MagicTransferScreenState extends ConsumerState<MagicTransferScreen>
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'Walk to your desktop and open your hand to transfer',
+                        'Walk to your desktop to transfer',
                         style: TextStyle(
                           fontSize: 13,
                           color: AppColors.textSecondary,
@@ -572,6 +463,19 @@ class _MagicTransferScreenState extends ConsumerState<MagicTransferScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCarryingState() {
+    return const Center(
+      child: Text(
+        'Carrying...',
+        style: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+        ),
       ),
     );
   }

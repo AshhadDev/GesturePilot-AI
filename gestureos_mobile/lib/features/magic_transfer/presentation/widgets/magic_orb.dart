@@ -109,12 +109,12 @@ class _MagicOrbState extends ConsumerState<MagicOrb>
       case MagicPickupStep.idle:
         return _OrbColors(AppColors.primary, AppColors.accent);
       case MagicPickupStep.openHandDetected:
+      case MagicPickupStep.handConfirmed:
         return _OrbColors(AppColors.secondary, const Color(0xFFD946EF));
-      case MagicPickupStep.fistConfirmed:
-        return _OrbColors(AppColors.accent, const Color(0xFF22C55E));
       case MagicPickupStep.packing:
         return _OrbColors(const Color(0xFF22C55E), const Color(0xFF10B981));
       case MagicPickupStep.packed:
+      case MagicPickupStep.carrying:
         return _OrbColors(const Color(0xFF22C55E), AppColors.accent);
     }
   }
@@ -124,12 +124,12 @@ class _MagicOrbState extends ConsumerState<MagicOrb>
       case MagicPickupStep.idle:
         return 0.5;
       case MagicPickupStep.openHandDetected:
+      case MagicPickupStep.handConfirmed:
         return 0.8;
-      case MagicPickupStep.fistConfirmed:
-        return 1.0;
       case MagicPickupStep.packing:
         return 1.0;
       case MagicPickupStep.packed:
+      case MagicPickupStep.carrying:
         return 0.9;
     }
   }

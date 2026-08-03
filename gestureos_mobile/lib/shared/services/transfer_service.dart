@@ -109,6 +109,7 @@ class TransferService {
   }
 
   Future<void> handleIncomingTransfer(TcpConnection conn) async {
+    if (_isTransferring) return;
     _isTransferring = true;
     _startTimestamp = DateTime.now().microsecondsSinceEpoch;
 

@@ -85,12 +85,16 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
             ),
           ),
           const SizedBox(width: AppDimensions.spacingMd),
-          Text(
-            'GestureOS',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
+          Flexible(
+            child: Text(
+              'GestureOS',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
             ),
           ),
         ],

@@ -7,18 +7,28 @@ import 'package:gesture_os/features/magic_transfer/domain/gesture_result.dart';
 import 'package:gesture_os/features/magic_transfer/domain/hand_landmark.dart';
 
 // ---------------------------------------------------------------------------
-//  Configurable thresholds (tune for your environment)
+//  Configurable thresholds
 // ---------------------------------------------------------------------------
 
-const double kVerificationThreshold = 0.40;        // was 0.55 — lowered so real hands pass morphology flattening
-const double kOpenPalmScoreThreshold = 0.50;       // was 0.85 — lowered for testing
-const double kFistScoreThreshold = 0.85;           // was 0.90
-const int kOpenPalmConsecutiveRequired = 8;        // frames of stable open palm
-const int kFistConsecutiveRequired = 5;            // frames of stable fist
-const int kHandLostThreshold = 15;                 // frames before hand-off
-const int kTrackHoldFrames = 30;                   // grace window for brief tracking gaps
-const double kTrackMaxDist = 0.3;                  // normalised displacement resets ID
-const int kFingerHistorySize = 5;                  // frames for mode filter
+const double kStage3Threshold = 0.70;
+const double kOpenHandEntry = 0.70;
+const double kOpenHandExit = 0.55;
+const int kConsecutiveRequired = 5;
+const int kHandLostThreshold = 10;
+const double kTrackMaxDist = 0.3;
+const int kFingerHistorySize = 5;
+
+// Stage-2 binary validation gates
+const double kMinArea = 300;
+const double kMinAspect = 0.35;
+const double kMaxAspect = 2.85;
+const double kMinExtent = 0.25;
+const double kMinSolidity = 0.15;
+const double kMaxSolidity = 0.95;
+const double kMaxSmoothness = 60;
+
+const double _emaAlpha = 0.30;
+const int _fpsWindow = 30;
 
 // ---------------------------------------------------------------------------
 //  Point helpers
@@ -37,7 +47,7 @@ class _Pt {
 }
 
 // ---------------------------------------------------------------------------
-//  Binary grid (skin mask) – used for morphology & component analysis
+//  Binary grid – morphology ops
 // ---------------------------------------------------------------------------
 
 class _Grid {
@@ -92,7 +102,7 @@ class _Grid {
 }
 
 // ---------------------------------------------------------------------------
-//  Component found by flood-fill
+//  Connected component
 // ---------------------------------------------------------------------------
 
 class _Component {
@@ -116,27 +126,25 @@ class _Component {
 }
 
 // ---------------------------------------------------------------------------
-//  Extracted hand features after verification
+//  Extracted hand features
 // ---------------------------------------------------------------------------
 
 class _HandFeatures {
   final int pixelCount;
   final int boundaryCount;
   final int minX, minY, maxX, maxY;
-  final double cx, cy; // grid-space centroid
-  final double bboxLeft, bboxTop, bboxRight, bboxBottom; // image-space
-
-  // Derived metrics
-  final double area; // pixelCount
+  final double cx, cy;
+  final double bboxLeft, bboxTop, bboxRight, bboxBottom;
+  final double area;
   final double bboxW, bboxH;
-  final double perimeter; // boundaryCount
-  final List<_Pt> hull; // convex hull vertices (grid-space)
-  final List<double> defects; // defect depths
+  final double perimeter;
+  final List<_Pt> hull;
+  final List<double> defects;
   final int fingerCount;
-  final double solidity; // area / convexHullArea
-  final double circularity; // 4πA / P²
-  final double aspectRatio; // w/h
-  final double fillRatio; // area / (bboxW * bboxH)
+  final double solidity;
+  final double circularity;
+  final double aspectRatio;
+  final double fillRatio;
 
   _HandFeatures({
     required this.pixelCount,
@@ -165,16 +173,16 @@ class _HandFeatures {
   });
 }
 
-// ---------------------------------------------------------------------------
-//  Main service – singleton
-// ---------------------------------------------------------------------------
+// ========================================================================
+//  Main service – singleton (pure analysis, no state machine)
+// ========================================================================
 
 class MediapipeService {
   MediapipeService._();
   static final MediapipeService _instance = MediapipeService._();
   static MediapipeService get instance => _instance;
 
-  // ---- MediaPipe landmark constants (kept) --------------------------------
+  // ---- MediaPipe landmark constants (kept for compatibility) --------------
   static const List<List<int>> handConnections = [
     [0, 1], [1, 2], [2, 3], [3, 4],
     [0, 5], [5, 6], [6, 7], [7, 8],
@@ -192,300 +200,181 @@ class MediapipeService {
 
   // ---- EMA smoothing -----------------------------------------------------
   double _smoothConf = 0.0;
-  double _smoothFist = 0.0;
-  static const double _emaAlpha = 0.30;
+  double _smoothOpen = 0.0;
 
-  // ---- Multi-frame validation --------------------------------------------
-  int _totalProcessed = 0;
-  int _handPresentFrames = 0; // frames with verified hand
-  int _fistConsecutiveFrames = 0;
-  int _openPalmConsecutiveFrames = 0;
+  // ---- Frame counters ----------------------------------------------------
+  int _consecutiveOpenHandFrames = 0;
   int _handLostFrames = 0;
 
-  // ---- Tracking hold (brief gap tolerance) -------------------------------
-  int _lastVerifiedFrame = 0;
-  GestureResult? _lastResult;
-
-  // ---- Tracking ID -------------------------------------------------------
+  // ---- Tracking ----------------------------------------------------------
   int _nextTrackingId = 1;
   int _currentTrackingId = 0;
   double _trackedCx = 0, _trackedCy = 0;
 
-  // ---- Finger-count history for stability --------------------------------
+  // ---- Finger-count history ----------------------------------------------
   final _fingerHistory = <int>[];
 
   // ---- FPS ---------------------------------------------------------------
   int _fpsCounter = 0;
   double _currentFps = 0.0;
   int _lastFpsTick = 0;
-  static const int _fpsWindow = 30;
 
   // ---- Public accessors --------------------------------------------------
   double get fps => _currentFps;
-  int get handFrames => _handPresentFrames;
-  int get fistFrames => _fistConsecutiveFrames;
-  int get lostFrames => _handLostFrames;
-  int get trackingId => _currentTrackingId;
-  int get consecutiveOpenPalmFrames => _openPalmConsecutiveFrames;
-  int get consecutiveFistFrames => _fistConsecutiveFrames;
-  double get verificationScore =>
-      (_handPresentFrames > 0 && _lastResult != null)
-          ? _lastResult!.verificationScore
-          : 0.0;
+  int get consecutiveOpenHandFrames => _consecutiveOpenHandFrames;
+  int get handLostFrames => _handLostFrames;
 
   // ========================================================================
   //  Entry point
   // ========================================================================
 
   GestureResult processFrame(CameraImage image) {
-    _totalProcessed++;
-
-    // Brightness adaptation (every 30 frames)
-    if (_totalProcessed % 30 == 0) _adaptThresholds(image);
+    if (_fpsCounter == 0) _adaptThresholds(image);
 
     // ---- Stage 1: skin classification + morphology -----------------------
     final stride = math.max(3, image.width ~/ 160);
     final grid = _classifySkin(image, stride);
-
-    // Apply Gaussian-like blur: a simple 3x3 box filter on the grid
     final blurred = _boxBlur3(grid);
-
-    // Morphological cleanup
     final cleaned = blurred.open().close();
 
-    // ---- Stage 2: connected components -----------------------------------
+    // ---- Stage 2a: connected components -----------------------------------
     final comp = _findLargestComponent(cleaned, stride, image);
 
-    // ---- Stage 3–4: feature extraction + verification --------------------
+    // ---- Stage 3a: feature extraction ------------------------------------
     _HandFeatures? features;
     if (comp != null) {
       features = _extractFeatures(comp, cleaned, image, stride);
     }
 
-    bool handVerified = false;
-    int fingerCount = 0;
+    // ---- Stage 2b: binary validation (hard gates) ------------------------
+    final rejection = features != null
+        ? _validateBinaryStage2(features)
+        : RejectionReason.noComponent;
+    final stage2Passed = rejection == RejectionReason.none;
+
+    // ---- Stage 3b: weighted confidence -----------------------------------
     VerificationDetail? vDetail;
+    double stage3Confidence = 0.0;
+    if (stage2Passed && features != null) {
+      vDetail = _computeVerificationScore(features);
+      stage3Confidence = vDetail.totalScore;
+    }
+    final stage3Passed = stage3Confidence >= kStage3Threshold;
+
+    // ---- Open hand score (independent, no fist) --------------------------
+    double openScore = 0.0;
+    int fingerCount = 0;
+    if (features != null) {
+      fingerCount = _stableFingerCount(features.fingerCount);
+      openScore = _openPalmScore(features, fingerCount);
+    }
+
+    // ---- Frame counters with hysteresis ----------------------------------
+    final bool handPresent = stage2Passed && stage3Passed && openScore >= kOpenHandExit;
+    if (handPresent) {
+      _handLostFrames = 0;
+      if (openScore >= kOpenHandEntry) {
+        _consecutiveOpenHandFrames++;
+      } else if (openScore < kOpenHandExit) {
+        _consecutiveOpenHandFrames = 0;
+      }
+    } else {
+      _handLostFrames++;
+      _consecutiveOpenHandFrames = 0;
+    }
+
+    final bool reliableHand = handPresent && _consecutiveOpenHandFrames >= kConsecutiveRequired;
+
+    // ---- EMA smoothing ---------------------------------------------------
+    if (handPresent) {
+      _smoothConf = _ema(_smoothConf, stage3Confidence);
+      _smoothOpen = _ema(_smoothOpen, openScore);
+    } else {
+      _smoothConf = 0;
+      _smoothOpen = 0;
+    }
+
+    // ---- Build result ----------------------------------------------------
     double bL = 0, bT = 0, bR = 0, bB = 0;
     double normSize = 0.0;
     List<HandLandmark>? lms;
-    double rawConf = 0.0;
-
     if (features != null) {
-      vDetail = _computeVerificationScore(features);
-      handVerified = vDetail.totalScore >= kVerificationThreshold;
-    }
-    final double verificationScore = vDetail?.totalScore ?? 0.0;
-
-    // ---- Stage 5: palm / fist classification (only on verified) ----------
-    bool isOpenPalm = false;
-    bool isFist = false;
-    double fistScore = 0.0;
-    double handConf = 0.0;
-    double fistConf = 0.0;
-    final stableFingers = _stableFingerCount(features?.fingerCount ?? 0);
-
-    if (handVerified && features != null) {
-      fingerCount = stableFingers;
-      rawConf = verificationScore;
-
-      // Open palm: many fingers, low solidity (gaps between fingers)
-      final openPalmScore = _openPalmScore(features, fingerCount);
-      final fistScoreVal = _fistScoreCalc(features, fingerCount);
-
-      isOpenPalm = openPalmScore >= kOpenPalmScoreThreshold;
-      isFist = fistScoreVal >= kFistScoreThreshold;
-
-      handConf = isOpenPalm ? openPalmScore : (isFist ? fistScoreVal : verificationScore);
-      fistConf = fistScoreVal;
-      fistScore = fistScoreVal;
-
-      // Bounding box (image-space)
-      bL = (features.minX * stride) / image.width;
-      bT = (features.minY * stride) / image.height;
-      bR = ((features.maxX + 1) * stride) / image.width;
-      bB = ((features.maxY + 1) * stride) / image.height;
+      bL = features.bboxLeft;
+      bT = features.bboxTop;
+      bR = features.bboxRight;
+      bB = features.bboxBottom;
       normSize = (bR - bL) * (bB - bT);
-
-      // Synthetic landmarks for orb tracking
       lms = _genLandmarks(
-        cx: (features.cx * stride) / image.width,
-        cy: (features.cy * stride) / image.height,
+        cx: (features.cx) / image.width * stride,
+        cy: (features.cy) / image.height * stride,
         bw: features.bboxW,
         bh: features.bboxH,
-        isFist: isFist,
       );
-
-      // Update tracking
-      _updateTracking(features, image, stride);
-    }
-
-    // ---- Multi-frame validation ------------------------------------------
-    final validated = _validateMultiFrame(
-      handVerified: handVerified,
-      isOpenPalm: isOpenPalm,
-      isFist: isFist,
-      confidence: handConf,
-      fistScore: fistScore,
-      fistConfidence: fistConf,
-      verificationScore: verificationScore,
-      fingerCount: fingerCount,
-      landmarks: lms,
-      bboxLeft: bL,
-      bboxTop: bT,
-      bboxRight: bR,
-      bboxBottom: bB,
-      normSize: normSize,
-      vDetail: vDetail,
-    );
-
-    // ---- EMA smoothing ---------------------------------------------------
-    if (validated.isHandDetected) {
-      _smoothConf = _ema(_smoothConf, validated.confidence);
-      _smoothFist = _ema(_smoothFist, validated.fistScore);
-    } else {
-      _smoothConf = 0;
-      _smoothFist = 0;
+      if (reliableHand) {
+        _updateTracking(features, image, stride);
+      }
     }
 
     // ---- FPS -------------------------------------------------------------
     _fpsCounter++;
     if (_fpsCounter >= _fpsWindow) {
-      final now = _totalProcessed;
+      final now = _fpsCounter;
       _currentFps = _fpsWindow / ((now - _lastFpsTick) / 30.0);
       _lastFpsTick = now;
       _fpsCounter = 0;
     }
 
     return GestureResult(
-      isHandDetected: validated.isHandDetected,
-      isFist: validated.isFist,
+      isHandDetected: reliableHand,
       confidence: _smoothConf,
-      landmarks: validated.landmarks,
-      fistScore: _smoothFist,
-      rawConfidence: rawConf,
-      normalizedHandSize: validated.normalizedHandSize,
-      bboxLeft: validated.bboxLeft,
-      bboxTop: validated.bboxTop,
-      bboxRight: validated.bboxRight,
-      bboxBottom: validated.bboxBottom,
-      isHandVerified: validated.isHandDetected,
-      isOpenPalm: validated.isHandDetected && _openPalmConsecutiveFrames >= kOpenPalmConsecutiveRequired,
-      fingerCount: validated.fingerCount,
-      verificationScore: validated.verificationScore,
-      trackingId: validated.trackingId,
-      fistConfidence: validated.fistConfidence,
-      verificationDetail: validated.verificationDetail,
+      rawConfidence: stage3Confidence,
+      openHandScore: _smoothOpen,
+      stage2Passed: stage2Passed,
+      stage3Passed: stage3Passed,
+      rejectionReason: rejection,
+      metrics: features != null
+          ? DetectionMetrics(
+              contourArea: features.area,
+              bboxWidth: features.bboxW,
+              bboxHeight: features.bboxH,
+              extent: features.fillRatio,
+              solidity: features.solidity,
+              aspectRatio: features.aspectRatio,
+              smoothness: features.perimeter > 0
+                  ? (features.perimeter * features.perimeter) / features.area
+                  : 0,
+              fingerCount: fingerCount,
+            )
+          : null,
+      verificationDetail: vDetail,
+      consecutiveOpenHandFrames: _consecutiveOpenHandFrames,
+      handLostFrames: _handLostFrames,
+      bboxLeft: bL,
+      bboxTop: bT,
+      bboxRight: bR,
+      bboxBottom: bB,
+      normalizedHandSize: normSize,
+      trackingId: _currentTrackingId,
+      fingerCount: fingerCount,
+      landmarks: lms,
     );
   }
 
   // ========================================================================
-  //  Multi-frame validation
+  //  Stage 2b – binary validation (hard gates)
   // ========================================================================
 
-  GestureResult _validateMultiFrame({
-    required bool handVerified,
-    required bool isOpenPalm,
-    required bool isFist,
-    required double confidence,
-    required double fistScore,
-    required double fistConfidence,
-    required double verificationScore,
-    required int fingerCount,
-    required List<HandLandmark>? landmarks,
-    required double bboxLeft,
-    required double bboxTop,
-    required double bboxRight,
-    required double bboxBottom,
-    required double normSize,
-    required VerificationDetail? vDetail,
-  }) {
-    // Track hold: if hand was present but briefly lost, reuse last result
-    if (!handVerified && _lastResult != null &&
-        (_totalProcessed - _lastVerifiedFrame) < kTrackHoldFrames) {
-      final hold = _lastResult!;
-      _handLostFrames = 0;
-      return GestureResult(
-        isHandDetected: true,
-        isFist: hold.isFist,
-        confidence: hold.confidence * 0.7,
-        landmarks: hold.landmarks,
-        fistScore: hold.fistScore,
-        rawConfidence: hold.rawConfidence,
-        normalizedHandSize: hold.normalizedHandSize,
-        bboxLeft: hold.bboxLeft,
-        bboxTop: hold.bboxTop,
-        bboxRight: hold.bboxRight,
-        bboxBottom: hold.bboxBottom,
-        isHandVerified: true,
-        isOpenPalm: hold.isOpenPalm,
-        fingerCount: hold.fingerCount,
-        verificationScore: hold.verificationScore,
-        trackingId: _currentTrackingId,
-        fistConfidence: hold.fistConfidence,
-        verificationDetail: hold.verificationDetail,
-      );
+  RejectionReason _validateBinaryStage2(_HandFeatures f) {
+    if (f.area < kMinArea) return RejectionReason.tooSmall;
+    final asp = f.aspectRatio > 1.0 ? 1.0 / f.aspectRatio : f.aspectRatio;
+    if (asp < kMinAspect || asp > kMaxAspect) return RejectionReason.badAspectRatio;
+    if (f.fillRatio < kMinExtent) return RejectionReason.lowExtent;
+    if (f.solidity < kMinSolidity || f.solidity > kMaxSolidity) return RejectionReason.lowSolidity;
+    if (f.perimeter > 0) {
+      final smoothness = (f.perimeter * f.perimeter) / f.area;
+      if (smoothness > kMaxSmoothness) return RejectionReason.tooSmooth;
     }
-
-    if (!handVerified) {
-      // Hand lost
-      _handPresentFrames = 0;
-      _openPalmConsecutiveFrames = 0;
-      _fistConsecutiveFrames = 0;
-      _handLostFrames++;
-      _currentTrackingId = 0;
-      _lastResult = null;
-      return GestureResult(isHandDetected: false);
-    }
-
-    // Hand is verified this frame
-    _handPresentFrames++;
-    _handLostFrames = 0;
-    _lastVerifiedFrame = _totalProcessed;
-
-    // Open palm consecutive counting
-    if (isOpenPalm) {
-      _openPalmConsecutiveFrames++;
-    } else {
-      _openPalmConsecutiveFrames = 0;
-    }
-
-    // Fist consecutive counting
-    if (isFist) {
-      _fistConsecutiveFrames++;
-    } else {
-      _fistConsecutiveFrames = 0;
-    }
-
-    // Only report open palm after enough consecutive frames
-    final bool finalOpenPalm =
-        _openPalmConsecutiveFrames >= kOpenPalmConsecutiveRequired;
-    final bool finalFist =
-        _fistConsecutiveFrames >= kFistConsecutiveRequired;
-    final bool finalHand = _handPresentFrames >= 1;
-
-    final result = GestureResult(
-      isHandDetected: finalHand,
-      isFist: finalFist,
-      confidence: confidence,
-      landmarks: landmarks,
-      fistScore: fistScore,
-      rawConfidence: verificationScore,
-      normalizedHandSize: normSize,
-      bboxLeft: bboxLeft,
-      bboxTop: bboxTop,
-      bboxRight: bboxRight,
-      bboxBottom: bboxBottom,
-      isHandVerified: true,
-      isOpenPalm: finalOpenPalm,
-      fingerCount: fingerCount,
-      verificationScore: verificationScore,
-      trackingId: _currentTrackingId,
-      fistConfidence: fistConfidence,
-      verificationDetail: vDetail,
-    );
-
-    _lastResult = result;
-    return result;
+    return RejectionReason.none;
   }
 
   // ========================================================================
@@ -508,16 +397,13 @@ class MediapipeService {
         final ix = gx * stride;
         final iy = gy * stride;
         if (ix >= img.width || iy >= img.height) continue;
-
         final yi = iy * yRow + ix;
         if (yi >= yB.length) continue;
         final yv = yB[yi];
-
         final uvi = (iy >> 1) * uvRow + (ix & ~1);
         if (uvi + 1 >= uvB.length) continue;
         final vv = uvB[uvi];
         final uv = uvB[uvi + 1];
-
         if (_isSkin(yv, uv, vv)) g.set(gx, gy, 1);
       }
     }
@@ -530,7 +416,7 @@ class MediapipeService {
       v >= _vMin && v <= _vMax;
 
   // ========================================================================
-  //  3×3 box blur on grid
+  //  3×3 box blur
   // ========================================================================
 
   _Grid _boxBlur3(_Grid g) {
@@ -541,8 +427,7 @@ class MediapipeService {
         int count = 0;
         for (int dy = -1; dy <= 1; dy++) {
           for (int dx = -1; dx <= 1; dx++) {
-            final val = g.get(x + dx, y + dy);
-            sum += val;
+            sum += g.get(x + dx, y + dy);
             count++;
           }
         }
@@ -567,10 +452,7 @@ class MediapipeService {
     for (int y = cy - hh; y <= cy + hh; y += 3) {
       for (int x = cx - hw; x <= cx + hw; x += 3) {
         final idx = y * row + x;
-        if (idx < yB.length) {
-          sumY += yB[idx];
-          n++;
-        }
+        if (idx < yB.length) { sumY += yB[idx]; n++; }
       }
     }
     if (n == 0) return;
@@ -592,7 +474,7 @@ class MediapipeService {
   }
 
   // ========================================================================
-  //  Connected-component extraction (flood-fill)
+  //  Connected components
   // ========================================================================
 
   _Component? _findLargestComponent(_Grid g, int stride, CameraImage image) {
@@ -621,16 +503,12 @@ class MediapipeService {
           if (py < mnY) mnY = py;
           if (py > mxY) mxY = py;
 
-          // Check if boundary pixel
           final isBoundary =
               px == 0 || g.data[py * g.w + (px - 1)] == 0 ||
               px == g.w - 1 || g.data[py * g.w + (px + 1)] == 0 ||
               py == 0 || g.data[(py - 1) * g.w + px] == 0 ||
               py == g.h - 1 || g.data[(py + 1) * g.w + px] == 0;
-          if (isBoundary) {
-            bnd++;
-            boundary.add(_Pt(px, py));
-          }
+          if (isBoundary) { bnd++; boundary.add(_Pt(px, py)); }
 
           void push(int nx, int ny) {
             final nIdx = ny * g.w + nx;
@@ -673,90 +551,62 @@ class MediapipeService {
       _Component comp, _Grid grid, CameraImage image, int stride) {
     final bw = (comp.maxX - comp.minX + 1).toDouble();
     final bh = (comp.maxY - comp.minY + 1).toDouble();
-
-    // Reject extreme aspect ratios early
     final asp = bw > 0 && bh > 0 ? bw / bh : 1.0;
     if (asp < 0.25 || asp > 4.0) return null;
 
-    // Convex hull from boundary pixels
     final hull = _convexHull(comp.boundaryPixels);
-
-    // Compute convexity defects and finger count
     final defects = _computeDefects(comp.boundaryPixels, hull);
     final fingerCount = _countFingers(defects, bh);
-
-    // Hull area (polygon area)
     final hullArea = _polygonArea(hull);
 
-    // Metrics
     final area = comp.pixelCount.toDouble();
     final perimeter = comp.boundaryCount.toDouble();
     final solidity = hullArea > 0 ? area / hullArea : 0.0;
     final circularity =
         perimeter > 0 ? (4 * math.pi * area) / (perimeter * perimeter) : 0.0;
-    final fillRatio =
-        (bw * bh) > 0 ? area / (bw * bh) : 0.0;
-    final aspectRatio = asp;
+    final fillRatio = (bw * bh) > 0 ? area / (bw * bh) : 0.0;
 
     return _HandFeatures(
       pixelCount: comp.pixelCount,
       boundaryCount: comp.boundaryCount,
-      minX: comp.minX,
-      minY: comp.minY,
-      maxX: comp.maxX,
-      maxY: comp.maxY,
-      cx: comp.cx.toDouble(),
-      cy: comp.cy.toDouble(),
+      minX: comp.minX, minY: comp.minY,
+      maxX: comp.maxX, maxY: comp.maxY,
+      cx: comp.cx.toDouble(), cy: comp.cy.toDouble(),
       bboxLeft: (comp.minX * stride) / image.width,
       bboxTop: (comp.minY * stride) / image.height,
       bboxRight: ((comp.maxX + 1) * stride) / image.width,
       bboxBottom: ((comp.maxY + 1) * stride) / image.height,
-      area: area,
-      bboxW: bw,
-      bboxH: bh,
+      area: area, bboxW: bw, bboxH: bh,
       perimeter: perimeter,
-      hull: hull,
-      defects: defects,
+      hull: hull, defects: defects,
       fingerCount: fingerCount,
-      solidity: solidity,
-      circularity: circularity,
-      aspectRatio: aspectRatio,
-      fillRatio: fillRatio,
+      solidity: solidity, circularity: circularity,
+      aspectRatio: asp, fillRatio: fillRatio,
     );
   }
 
   // ========================================================================
-  //  Convex hull (Andrew's Monotone Chain)
+  //  Convex hull
   // ========================================================================
 
   List<_Pt> _convexHull(List<_Pt> points) {
     if (points.length < 3) return List.from(points);
-
-    // Sort by x then y
     final sorted = List<_Pt>.from(points)
       ..sort((a, b) => a.x != b.x ? a.x - b.x : a.y - b.y);
-
-    // Build lower hull
     final lower = <_Pt>[];
     for (final p in sorted) {
-      while (lower.length >= 2 &&
-          _cross(lower[lower.length - 2], lower.last, p) <= 0) {
+      while (lower.length >= 2 && _cross(lower[lower.length - 2], lower.last, p) <= 0) {
         lower.removeLast();
       }
       lower.add(p);
     }
-
-    // Build upper hull
     final upper = <_Pt>[];
     for (final p in sorted.reversed) {
-      while (upper.length >= 2 &&
-          _cross(upper[upper.length - 2], upper.last, p) <= 0) {
+      while (upper.length >= 2 && _cross(upper[upper.length - 2], upper.last, p) <= 0) {
         upper.removeLast();
       }
       upper.add(p);
     }
-
-    // Remove last point of each (it's the same as first of the other)
     lower.removeLast();
     upper.removeLast();
     return [...lower, ...upper];
@@ -767,38 +617,25 @@ class MediapipeService {
   }
 
   // ========================================================================
-  //  Convexity defects (finger valleys)
-  //    For each hull edge, find the boundary point farthest from the edge.
-  //    The distance (defect depth) indicates a finger valley.
+  //  Convexity defects
   // ========================================================================
 
   List<double> _computeDefects(List<_Pt> boundary, List<_Pt> hull) {
     if (hull.length < 3 || boundary.isEmpty) return [];
-
     final defects = <double>[];
     final n = hull.length;
-
     for (int i = 0; i < n; i++) {
       final p1 = hull[i];
       final p2 = hull[(i + 1) % n];
-
-      // Skip zero-length edge
       if (p1.x == p2.x && p1.y == p2.y) continue;
-
-      // Vector from p1 to p2
       final edgeDx = p2.x - p1.x;
       final edgeDy = p2.y - p1.y;
       final edgeLenSq = edgeDx * edgeDx + edgeDy * edgeDy;
       if (edgeLenSq == 0) continue;
-
       double maxDist = 0;
-
       for (final bp in boundary) {
-        // Distance from point to line segment
         final t = _clamp(
-            ((bp.x - p1.x) * edgeDx + (bp.y - p1.y) * edgeDy) / edgeLenSq,
-            0.0,
-            1.0);
+            ((bp.x - p1.x) * edgeDx + (bp.y - p1.y) * edgeDy) / edgeLenSq, 0.0, 1.0);
         final projX = p1.x + t * edgeDx;
         final projY = p1.y + t * edgeDy;
         final dx = bp.x - projX;
@@ -806,13 +643,8 @@ class MediapipeService {
         final dist = math.sqrt(dx * dx + dy * dy);
         if (dist > maxDist) maxDist = dist;
       }
-
-      // Only count significant defects
-      if (maxDist > 2.5) {
-        defects.add(maxDist);
-      }
+      if (maxDist > 2.5) defects.add(maxDist);
     }
-
     return defects;
   }
 
@@ -820,110 +652,63 @@ class MediapipeService {
       v < lo ? lo : (v > hi ? hi : v);
 
   // ========================================================================
-  //  Finger counting from convexity defects
+  //  Finger counting
   // ========================================================================
 
   int _countFingers(List<double> defects, double bboxH) {
-    // Filter by relative depth
-    final significant =
-        defects.where((d) => d > bboxH * 0.08).toList();
-
-    // Sort by depth descending
+    final significant = defects.where((d) => d > bboxH * 0.08).toList();
     significant.sort((a, b) => b.compareTo(a));
-
-    // Take up to 5 deepest
     final top = significant.take(5).toList();
-
-    // Number of valleys = (fingers - 1) approximately.
-    // But we count: each defect = one inter-finger valley.
-    // For open palm with 5 fingers: ~4 valleys.
-    // For fist: 0 valleys.
-    // Add 1 to get finger count, but clamp to 0-5.
     final count = top.length;
-    if (count >= 4) return 5; // definitely 5 fingers
-    if (count == 3) return 4; // most likely 4 fingers
-    if (count == 2) return 3; // 3 fingers
-    if (count == 1) return 2; // maybe 2 fingers
-    return 1; // 0 or 1 finger = fist
+    if (count >= 4) return 5;
+    if (count == 3) return 4;
+    if (count == 2) return 3;
+    if (count == 1) return 2;
+    return 1;
   }
-
-  // ========================================================================
-  //  Stable finger count (history-based)
-  // ========================================================================
 
   int _stableFingerCount(int raw) {
     _fingerHistory.add(raw);
-    if (_fingerHistory.length > kFingerHistorySize) {
-      _fingerHistory.removeAt(0);
-    }
+    if (_fingerHistory.length > kFingerHistorySize) _fingerHistory.removeAt(0);
     if (_fingerHistory.isEmpty) return 0;
-    // Return mode (most common value)
     final counts = <int, int>{};
-    for (final c in _fingerHistory) {
-      counts[c] = (counts[c] ?? 0) + 1;
-    }
+    for (final c in _fingerHistory) { counts[c] = (counts[c] ?? 0) + 1; }
     return counts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
   }
 
   // ========================================================================
-  //  Hand verification score (Stage 3)
+  //  Weighted confidence (Stage 3)
   // ========================================================================
 
   VerificationDetail _computeVerificationScore(_HandFeatures f) {
-    // 1. Solidity (weight 0.20): peak at 0.60, gradual falloff either side
     final double rawS = f.solidity >= 0.10 && f.solidity <= 0.95
-        ? 0.20 * (1.0 - (f.solidity - 0.60).abs() / 0.50).clamp(0.0, 1.0)
-        : 0.0;
-
-    // 2. Circularity (weight 0.15): peak at 0.35
+        ? 0.20 * (1.0 - (f.solidity - 0.60).abs() / 0.50).clamp(0.0, 1.0) : 0.0;
     final double rawC = f.circularity >= 0.05 && f.circularity <= 0.85
-        ? 0.15 * (1.0 - (f.circularity - 0.35).abs() / 0.45).clamp(0.0, 1.0)
-        : 0.0;
-
-    // 3. Aspect ratio (weight 0.15): prefer ~0.65
+        ? 0.15 * (1.0 - (f.circularity - 0.35).abs() / 0.45).clamp(0.0, 1.0) : 0.0;
     final asp = f.aspectRatio > 1.0 ? 1.0 / f.aspectRatio : f.aspectRatio;
     final double rawA = asp >= 0.20
-        ? 0.15 * (1.0 - (asp - 0.65).abs() / 0.65).clamp(0.0, 1.0)
-        : 0.0;
-
-    // 4. Fill ratio (weight 0.15): prefer ~0.50
+        ? 0.15 * (1.0 - (asp - 0.65).abs() / 0.65).clamp(0.0, 1.0) : 0.0;
     final double rawF = f.fillRatio >= 0.10 && f.fillRatio <= 0.95
-        ? 0.15 * (1.0 - (f.fillRatio - 0.50).abs() / 0.50).clamp(0.0, 1.0)
-        : 0.0;
-
-    // 5. Defects (weight 0.15): 0 → 0.0, 4+ → full score
+        ? 0.15 * (1.0 - (f.fillRatio - 0.50).abs() / 0.50).clamp(0.0, 1.0) : 0.0;
     final double rawD = 0.15 * (f.defects.length / 4.0).clamp(0.0, 1.0);
-
-    // 6. Finger count (weight 0.20): 1-5 → full score
     final double rawG = f.fingerCount >= 1 && f.fingerCount <= 5 ? 0.20 : 0.0;
-
     final total = (rawS + rawC + rawA + rawF + rawD + rawG).clamp(0.0, 1.0);
-
     return VerificationDetail(
-      solidityScore: rawS,
-      circularityScore: rawC,
-      aspectRatioScore: rawA,
-      fillRatioScore: rawF,
-      defectsScore: rawD,
-      fingerCountScore: rawG,
+      solidityScore: rawS, circularityScore: rawC,
+      aspectRatioScore: rawA, fillRatioScore: rawF,
+      defectsScore: rawD, fingerCountScore: rawG,
       totalScore: total,
     );
   }
 
   // ========================================================================
-  //  Open palm score (Stage 5)
+  //  Open palm score (independent, no fist counterpart)
   // ========================================================================
 
   double _openPalmScore(_HandFeatures f, int fingerCount) {
-    // Finger count contributes but does not gate — a shape can look
-    // like an open palm even when valleys are filled by morphology.
     final double fingerScore =
         fingerCount >= 4 ? 1.0 : (fingerCount >= 2 ? 0.50 : 0.20);
-
-    // Defects = inter-finger valleys
     final double defectScore = (f.defects.length / 4.0).clamp(0.0, 1.0);
-
-    // Low solidity means gaps between fingers
     final double solidityScore;
     if (f.solidity >= 0.25 && f.solidity <= 0.70) {
       solidityScore = 1.0 - ((f.solidity - 0.45) / 0.25).abs();
@@ -934,16 +719,12 @@ class MediapipeService {
     } else {
       solidityScore = 0.0;
     }
-
-    // Moderate fill ratio
     final double fillScore;
     if (f.fillRatio >= 0.20 && f.fillRatio <= 0.65) {
       fillScore = 1.0;
     } else {
       fillScore = (1.0 - (f.fillRatio - 0.45).abs() / 0.45).clamp(0.0, 1.0);
     }
-
-    // Low-to-moderate circularity (not too round)
     final double circScore;
     if (f.circularity >= 0.08 && f.circularity <= 0.45) {
       circScore = 1.0;
@@ -952,57 +733,10 @@ class MediapipeService {
     } else {
       circScore = ((0.75 - f.circularity) / 0.30).clamp(0.0, 1.0);
     }
-
-    return (fingerScore * 0.20 +
-            defectScore * 0.25 +
+    return (fingerScore * 0.20 + defectScore * 0.25 +
             solidityScore.clamp(0.0, 1.0) * 0.25 +
             fillScore.clamp(0.0, 1.0) * 0.15 +
             circScore.clamp(0.0, 1.0) * 0.15)
-        .clamp(0.0, 1.0);
-  }
-
-  // ========================================================================
-  //  Fist score (Stage 6)
-  // ========================================================================
-
-  double _fistScoreCalc(_HandFeatures f, int fingerCount) {
-    // Few fingers
-    if (fingerCount > 2) return 0.0;
-
-    // High solidity (compact)
-    final solidityScore =
-        f.solidity >= 0.60
-            ? 1.0
-            : (f.solidity / 0.60).clamp(0.0, 1.0);
-
-    // High circularity (rounded)
-    final circScore =
-        f.circularity >= 0.40
-            ? 1.0
-            : (f.circularity / 0.40).clamp(0.0, 1.0);
-
-    // High fill ratio (fist fills bbox)
-    final fillScore =
-        f.fillRatio >= 0.55
-            ? 1.0
-            : (f.fillRatio / 0.55).clamp(0.0, 1.0);
-
-    // Near-square aspect ratio
-    final asp = f.aspectRatio > 1.0 ? 1.0 / f.aspectRatio : f.aspectRatio;
-    final aspScore =
-        asp >= 0.60 ? 1.0 : (asp / 0.60).clamp(0.0, 1.0);
-
-    // Few or no defects (fingers curled)
-    final defectScore =
-        f.defects.isEmpty
-            ? 1.0
-            : (1.0 - (f.defects.length / 5.0)).clamp(0.0, 1.0);
-
-    return (solidityScore * 0.25 +
-            circScore * 0.20 +
-            fillScore * 0.20 +
-            aspScore * 0.15 +
-            defectScore * 0.20)
         .clamp(0.0, 1.0);
   }
 
@@ -1013,32 +747,23 @@ class MediapipeService {
   void _updateTracking(_HandFeatures features, CameraImage image, int stride) {
     final imgCx = (features.cx * stride) / image.width;
     final imgCy = (features.cy * stride) / image.height;
-
     if (_currentTrackingId == 0) {
-      // Start new track
       _currentTrackingId = _nextTrackingId++;
       _trackedCx = imgCx;
       _trackedCy = imgCy;
       return;
     }
-
-    // Distance from tracked position
     final dx = imgCx - _trackedCx;
     final dy = imgCy - _trackedCy;
-    final dist = math.sqrt(dx * dx + dy * dy);
-
-    if (dist > kTrackMaxDist) {
-      // Too far — new hand, reset tracking
+    if (math.sqrt(dx * dx + dy * dy) > kTrackMaxDist) {
       _currentTrackingId = _nextTrackingId++;
     }
-
-    // Update tracked position (smooth)
     _trackedCx = _trackedCx * 0.7 + imgCx * 0.3;
     _trackedCy = _trackedCy * 0.7 + imgCy * 0.3;
   }
 
   // ========================================================================
-  //  Utility – polygon area
+  //  Polygon area
   // ========================================================================
 
   double _polygonArea(List<_Pt> pts) {
@@ -1054,13 +779,13 @@ class MediapipeService {
   }
 
   // ========================================================================
-  //  EM A
+  //  EMA
   // ========================================================================
 
   double _ema(double old, double v) => old * (1 - _emaAlpha) + v * _emaAlpha;
 
   // ========================================================================
-  //  Synthetic 21-landmark generation (unchanged)
+  //  Synthetic landmarks (always open-hand)
   // ========================================================================
 
   static List<HandLandmark> _genLandmarks({
@@ -1068,62 +793,43 @@ class MediapipeService {
     required double cy,
     required double bw,
     required double bh,
-    required bool isFist,
   }) {
     final l = <HandLandmark>[];
     l.add(HandLandmark(index: 0, x: cx, y: cy + bh * 0.35, z: 0));
-    if (isFist) {
-      for (int i = 1; i <= 20; i++) {
-        final a = i * 0.3;
-        final d = bw * 0.18;
-        l.add(HandLandmark(
-          index: i,
-          x: (cx + math.cos(a) * d).clamp(0.0, 1.0),
-          y: (cy + math.sin(a) * d * 0.5).clamp(0.0, 1.0),
-          z: 0,
-        ));
-      }
-    } else {
-      for (int i = 0; i < 4; i++) {
-        final t = (i + 1) / 4;
-        l.add(HandLandmark(
-            index: i + 1,
-            x: (cx - bw * 0.35 - bw * 0.18 * t).clamp(0.0, 1.0),
-            y: (cy - bh * 0.05 + bh * 0.15 * t).clamp(0.0, 1.0),
-            z: 0));
-      }
-      for (int i = 0; i < 4; i++) {
-        final t = (i + 1) / 4;
-        l.add(HandLandmark(
-            index: 5 + i,
-            x: (cx - bw * 0.12).clamp(0.0, 1.0),
-            y: (cy - bh * 0.3 - bh * 0.55 * t).clamp(0.0, 1.0),
-            z: 0));
-      }
-      for (int i = 0; i < 4; i++) {
-        final t = (i + 1) / 4;
-        l.add(HandLandmark(
-            index: 9 + i,
-            x: cx.clamp(0.0, 1.0),
-            y: (cy - bh * 0.3 - bh * 0.65 * t).clamp(0.0, 1.0),
-            z: 0));
-      }
-      for (int i = 0; i < 4; i++) {
-        final t = (i + 1) / 4;
-        l.add(HandLandmark(
-            index: 13 + i,
-            x: (cx + bw * 0.12).clamp(0.0, 1.0),
-            y: (cy - bh * 0.3 - bh * 0.55 * t).clamp(0.0, 1.0),
-            z: 0));
-      }
-      for (int i = 0; i < 4; i++) {
-        final t = (i + 1) / 4;
-        l.add(HandLandmark(
-            index: 17 + i,
-            x: (cx + bw * 0.25).clamp(0.0, 1.0),
-            y: (cy - bh * 0.25 - bh * 0.4 * t).clamp(0.0, 1.0),
-            z: 0));
-      }
+    for (int i = 0; i < 4; i++) {
+      final t = (i + 1) / 4;
+      l.add(HandLandmark(
+          index: i + 1,
+          x: (cx - bw * 0.35 - bw * 0.18 * t).clamp(0.0, 1.0),
+          y: (cy - bh * 0.05 + bh * 0.15 * t).clamp(0.0, 1.0), z: 0));
+    }
+    for (int i = 0; i < 4; i++) {
+      final t = (i + 1) / 4;
+      l.add(HandLandmark(
+          index: 5 + i,
+          x: (cx - bw * 0.12).clamp(0.0, 1.0),
+          y: (cy - bh * 0.3 - bh * 0.55 * t).clamp(0.0, 1.0), z: 0));
+    }
+    for (int i = 0; i < 4; i++) {
+      final t = (i + 1) / 4;
+      l.add(HandLandmark(
+          index: 9 + i,
+          x: cx.clamp(0.0, 1.0),
+          y: (cy - bh * 0.3 - bh * 0.65 * t).clamp(0.0, 1.0), z: 0));
+    }
+    for (int i = 0; i < 4; i++) {
+      final t = (i + 1) / 4;
+      l.add(HandLandmark(
+          index: 13 + i,
+          x: (cx + bw * 0.12).clamp(0.0, 1.0),
+          y: (cy - bh * 0.3 - bh * 0.55 * t).clamp(0.0, 1.0), z: 0));
+    }
+    for (int i = 0; i < 4; i++) {
+      final t = (i + 1) / 4;
+      l.add(HandLandmark(
+          index: 17 + i,
+          x: (cx + bw * 0.25).clamp(0.0, 1.0),
+          y: (cy - bh * 0.25 - bh * 0.4 * t).clamp(0.0, 1.0), z: 0));
     }
     return l;
   }

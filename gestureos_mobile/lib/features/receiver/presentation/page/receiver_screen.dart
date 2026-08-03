@@ -15,6 +15,7 @@ import 'package:gesture_os/features/magic_transfer/presentation/widgets/camera_p
 import 'package:gesture_os/features/receiver/providers/receiver_provider.dart';
 import 'package:gesture_os/shared/providers/transfer_provider.dart';
 import 'package:gesture_os/shared/services/network_service.dart';
+import 'package:gesture_os/shared/services/transfer_service.dart';
 
 class ReceiverScreen extends ConsumerStatefulWidget {
   const ReceiverScreen({super.key});
@@ -30,6 +31,8 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
   late final AnimationController _explodeController;
   late final AnimationController _pulseController;
   bool _showExplosion = false;
+  ReceiverStep _previousStep = ReceiverStep.idle;
+  final List<TcpConnection> _pendingConnections = [];
 
   @override
   void initState() {
@@ -37,12 +40,20 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
     _connSub = NetworkService.instance.onIncomingConnection.listen((conn) {
       final notifier = ref.read(receiverProvider.notifier);
       notifier.onIncomingConnection(conn.remoteHost);
+      // Only start receiving when the receiver's hand is detected.
+      // Otherwise buffer the connection so a just-detected hand can
+      // process it via the transition check in build().
+      if (ref.read(receiverProvider).step == ReceiverStep.openHandDetected) {
+        _handleIncomingConnection(conn);
+      } else {
+        _pendingConnections.add(conn);
+      }
     });
 
     _flyInController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
-    );
+    )..addStatusListener(_onFlyInStatus);
 
     _explodeController = AnimationController(
       vsync: this,
@@ -55,29 +66,69 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
     )..repeat(reverse: true);
   }
 
+  void _handleIncomingConnection(TcpConnection conn) {
+    final notifier = ref.read(receiverProvider.notifier);
+    notifier.onReceivingStarted();
+    TransferService.instance.handleIncomingTransfer(conn);
+  }
+
   @override
   void dispose() {
+    _flyInController.removeStatusListener(_onFlyInStatus);
     _connSub?.cancel();
+    for (final conn in _pendingConnections) {
+      conn.close();
+    }
+    _pendingConnections.clear();
     _flyInController.dispose();
     _explodeController.dispose();
     _pulseController.dispose();
     super.dispose();
   }
 
+  void _onFlyInStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed && mounted) {
+      _explodeController.forward(from: 0);
+      setState(() => _showExplosion = true);
+    }
+  }
+
   void _triggerFlyIn() {
+    if (_showExplosion) return;
     _flyInController.forward(from: 0);
     _showExplosion = false;
-    Future.delayed(const Duration(milliseconds: 800), () {
-      if (mounted) {
-        _explodeController.forward(from: 0);
-        setState(() => _showExplosion = true);
-      }
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     final rs = ref.watch(receiverProvider);
+    final previousStep = _previousStep;
+    _previousStep = rs.step;
+
+    if (rs.step == ReceiverStep.receiving && previousStep != ReceiverStep.receiving) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _triggerFlyIn();
+      });
+    }
+
+    // Process a buffered connection once the receiver's hand is detected.
+    if (rs.step == ReceiverStep.openHandDetected &&
+        previousStep != ReceiverStep.openHandDetected &&
+        _pendingConnections.isNotEmpty) {
+      final conn = _pendingConnections.removeAt(0);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _handleIncomingConnection(conn);
+      });
+    }
+
+    // Drop buffered connections when leaving the ready-to-receive state.
+    if (_pendingConnections.isNotEmpty &&
+        rs.step != ReceiverStep.openHandDetected) {
+      for (final conn in _pendingConnections) {
+        conn.close();
+      }
+      _pendingConnections.clear();
+    }
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -95,12 +146,22 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
                   showGlow: !rs.isIdle,
                   debugMode: false,
                   currentStateLabel: _stateLabel(rs.step),
-                  onHandDetected: (_) =>
-                      ref.read(receiverProvider.notifier).onClosedFistDetected(),
-                  onHandLost: () =>
-                      ref.read(receiverProvider.notifier).onHandLost(),
-                  onFistLost: () =>
-                      ref.read(receiverProvider.notifier).onFistLost(),
+                  onFrameProcessed: (result) {
+                    final notifier = ref.read(receiverProvider.notifier);
+                    final step = ref.read(receiverProvider).step;
+                    if (result.isHandDetected) {
+                      if (step == ReceiverStep.idle &&
+                          result.openHandScore >= 0.70 &&
+                          result.consecutiveOpenHandFrames >= 5) {
+                        notifier.onOpenHandDetected();
+                      }
+                    } else if (step == ReceiverStep.openHandDetected ||
+                        step == ReceiverStep.receiving) {
+                      if (result.handLostFrames >= 10) {
+                        notifier.onHandLost();
+                      }
+                    }
+                  },
                   onConfidenceUpdate: (c) {},
                   onHandPosition: (_, _) {},
                 ),
@@ -118,20 +179,17 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
   Widget _buildBody(ReceiverState rs) {
     switch (rs.step) {
       case ReceiverStep.idle:
-        return _buildIdle();
-      case ReceiverStep.closedFistDetected:
-        return _buildClosedFist();
-      case ReceiverStep.waitingForOpenHand:
-        return _buildWaitingOpen();
-      case ReceiverStep.unpacking:
-        if (!_showExplosion) _triggerFlyIn();
-        return _buildUnpacking(rs);
+        return _buildIdle(rs);
+      case ReceiverStep.openHandDetected:
+        return _buildOpenHand();
+      case ReceiverStep.receiving:
+        return _buildReceiving(rs);
       case ReceiverStep.completed:
         return _buildCompleted(rs);
     }
   }
 
-  Widget _buildIdle() {
+  Widget _buildIdle(ReceiverState rs) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -162,7 +220,7 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Make a fist to receive',
+                    'Show your hand to receive',
                     style: GoogleFonts.poppins(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
@@ -185,7 +243,7 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
     );
   }
 
-  Widget _buildClosedFist() {
+  Widget _buildOpenHand() {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -223,7 +281,7 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Open your hand',
+                      'Receiving incoming files...',
                       style: GoogleFonts.poppins(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -231,7 +289,7 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
                       ),
                     ),
                     Text(
-                      'Release to prepare for incoming files',
+                      'Hold your hand steady',
                       style: GoogleFonts.poppins(
                         fontSize: 12,
                         color: AppColors.textSecondary,
@@ -247,69 +305,7 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
     );
   }
 
-  Widget _buildWaitingOpen() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Semantics(
-            label: 'Waiting for transfer orb animation',
-            child: const EnhancedOrb(
-              size: 100,
-              state: OrbState.active,
-              intensity: 1.0,
-            ),
-          ),
-          const SizedBox(height: 24),
-          PremiumGlassCard(
-            height: 70,
-            padding: const EdgeInsets.all(16),
-            glowColor: AppColors.primary,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.wifi_tethering_rounded,
-                    color: AppColors.primary,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Waiting for transfer...',
-                      style: GoogleFonts.poppins(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    Text(
-                      'Sender will connect shortly',
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUnpacking(ReceiverState rs) {
+  Widget _buildReceiving(ReceiverState rs) {
     final progress = rs.transferProgress;
 
     return AnimatedBuilder(
@@ -319,18 +315,12 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
         final explode = _explodeController.value;
         final pulse = _pulseController.value;
 
-        // Phase 1 (0-0.15): Orb flies into hand
         final flyInScale = 0.5 + flyIn * 0.5;
         final flyInOpacity = (1 - flyIn).clamp(0.0, 1.0);
         final flyInY = (1 - flyIn) * 80;
-
-        // Phase 2 (0.15-0.35): Explosion
         final explodePhase = explode;
         final showExplosion = _showExplosion && explodePhase < 1.0;
-
-        // Phase 3 (0.35+): Reconstruction
-        final reconPhase =
-            ((progress - 0.15) / 0.85).clamp(0.0, 1.0);
+        final reconPhase = ((progress - 0.15) / 0.85).clamp(0.0, 1.0);
 
         return Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -341,7 +331,6 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  // Fly-in orb
                   if (flyIn < 1.0)
                     Transform.translate(
                       offset: Offset(0, flyInY),
@@ -357,7 +346,6 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
                         ),
                       ),
                     ),
-                  // Explosion particles
                   if (showExplosion)
                     CustomPaint(
                       size: const Size(200, 200),
@@ -366,7 +354,6 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
                         fileCount: rs.fileCount > 0 ? rs.fileCount : 3,
                       ),
                     ),
-                  // Reconstruction phase
                   if (reconPhase > 0)
                     CustomPaint(
                       size: const Size(200, 200),
@@ -376,7 +363,6 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
                         pulse: pulse,
                       ),
                     ),
-                  // Progress indicator ring
                   if (reconPhase > 0)
                     SizedBox(
                       width: 160,
@@ -603,17 +589,17 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
     switch (step) {
       case ReceiverStep.idle:
         return 'Waiting';
-      case ReceiverStep.closedFistDetected:
-        return 'Fist Detected';
-      case ReceiverStep.waitingForOpenHand:
-        return 'Open Hand';
-      case ReceiverStep.unpacking:
+      case ReceiverStep.openHandDetected:
+        return 'Hand Detected';
+      case ReceiverStep.receiving:
         return 'Receiving';
       case ReceiverStep.completed:
         return 'Complete';
     }
   }
 }
+
+// ---- Custom painters (unchanged from original) ----
 
 class _ExplosionPainter extends CustomPainter {
   final double phase;
@@ -624,19 +610,14 @@ class _ExplosionPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-
-    // Expanding particle ring
     final ringRadius = 20 + phase * 80;
     canvas.drawCircle(
-      center,
-      ringRadius,
+      center, ringRadius,
       Paint()
         ..color = AppColors.accent.withValues(alpha: (1 - phase) * 0.3)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3 * (1 - phase),
     );
-
-    // Particle burst
     final burstCount = 20;
     for (int i = 0; i < burstCount; i++) {
       final angle = (i / burstCount) * math.pi * 2;
@@ -645,20 +626,15 @@ class _ExplosionPainter extends CustomPainter {
       final py = center.dy + math.sin(angle) * dist;
       final alpha = (1 - phase).clamp(0.0, 1.0);
       final size_ = 2 + (1 - phase) * 3;
-
       canvas.drawCircle(
-        Offset(px, py),
-        size_,
+        Offset(px, py), size_,
         Paint()..color = AppColors.accent.withValues(alpha: alpha),
       );
     }
-
-    // Shockwave
     if (phase < 0.5) {
       final shockR = phase * 2 * 60;
       canvas.drawCircle(
-        center,
-        shockR,
+        center, shockR,
         Paint()
           ..color = Colors.white.withValues(alpha: (1 - phase * 2) * 0.2)
           ..style = PaintingStyle.stroke
@@ -686,24 +662,18 @@ class _ReconstructionPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final fileCountD = fileCount.toDouble();
-
-    // File icons flying in from orbit
     for (int i = 0; i < fileCount; i++) {
       final orbitAngle = (i / fileCountD) * math.pi * 2;
       final entryPhase = ((phase * fileCountD - i) / fileCountD).clamp(0.0, 1.0);
       final dist = (1 - entryPhase) * 80;
       final size_ = 10 + entryPhase * 20;
       final alpha = entryPhase;
-
       final fx = center.dx + math.cos(orbitAngle) * dist;
       final fy = center.dy + math.sin(orbitAngle) * dist;
-
-      // File card
       final rect = RRect.fromRectAndRadius(
         Rect.fromCenter(center: Offset(fx, fy), width: size_, height: size_ * 1.3),
         const Radius.circular(3),
       );
-
       canvas.drawRRect(
         rect,
         Paint()
@@ -711,8 +681,6 @@ class _ReconstructionPainter extends CustomPainter {
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.5,
       );
-
-      // File icon line
       if (entryPhase > 0.5) {
         final lineAlpha = (entryPhase - 0.5) * 2;
         canvas.drawLine(
@@ -731,13 +699,10 @@ class _ReconstructionPainter extends CustomPainter {
         );
       }
     }
-
-    // Success glow when complete
     if (phase >= 0.95) {
       final glowAlpha = (phase - 0.95) * 20;
       canvas.drawCircle(
-        center,
-        30 + pulse * 10,
+        center, 30 + pulse * 10,
         Paint()
           ..shader = RadialGradient(
             colors: [
@@ -764,18 +729,13 @@ class _ProgressRingPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final r = size.width / 2 - 4;
-
-    // Background ring
     canvas.drawCircle(
-      center,
-      r,
+      center, r,
       Paint()
         ..color = AppColors.border.withValues(alpha: 0.3)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3,
     );
-
-    // Progress arc
     if (progress > 0) {
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: r),
@@ -784,10 +744,7 @@ class _ProgressRingPainter extends CustomPainter {
         false,
         Paint()
           ..shader = SweepGradient(
-            colors: [
-              AppColors.accent,
-              AppColors.success.withValues(alpha: 0.8),
-            ],
+            colors: [AppColors.accent, AppColors.success.withValues(alpha: 0.8)],
             stops: [0.0, progress],
           ).createShader(Rect.fromCircle(center: center, radius: r))
           ..style = PaintingStyle.stroke
@@ -795,8 +752,6 @@ class _ProgressRingPainter extends CustomPainter {
           ..strokeCap = StrokeCap.round,
       );
     }
-
-    // Animated dash
     final dashAngle = (pulse * math.pi * 2) % (math.pi * 2);
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: r),

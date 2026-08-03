@@ -1,15 +1,19 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
 import 'package:gesture_os/core/utils/logger.dart';
 import 'package:gesture_os/shared/protocol/frame_parser.dart';
 import 'package:gesture_os/shared/protocol/protocol.dart';
+import 'package:gesture_os/shared/services/compression_service.dart';
+import 'package:gesture_os/shared/services/encryption_service.dart';
 import 'package:gesture_os/shared/services/file_manager.dart';
 import 'package:gesture_os/shared/services/network_service.dart';
 import 'package:gesture_os/shared/services/transfer_service.dart';
+import 'package:gesture_os/shared/services/trusted_device_manager.dart';
 
 class _DigestSink implements Sink<Digest> {
   Digest? digest;
@@ -41,6 +45,8 @@ class _ReceivedFile {
   final String relativePath;
   final int fileSize;
   final int totalChunks;
+  final bool compressed;
+  final bool encrypted;
   int chunksReceived = 0;
   int bytesReceived = 0;
   final RandomAccessFile outputFile;
@@ -51,12 +57,18 @@ class _ReceivedFile {
     required this.relativePath,
     required this.fileSize,
     required this.totalChunks,
+    required this.compressed,
+    required this.encrypted,
     required this.outputFile,
     required this.hasher,
   });
 }
 
 class TransferReceiver {
+  /// When true, automatically accepts transfers from trusted devices
+  /// without user confirmation. Set from settings screen.
+  static bool autoAcceptTrusted = false;
+
   final StreamController<TransferProgress> _progressController =
       StreamController<TransferProgress>.broadcast();
 
@@ -119,6 +131,18 @@ class TransferReceiver {
               .toList();
           transferredBytes = 0;
 
+          // Auto-accept check: trusted + setting enabled
+          final isTrusted = TrustedDeviceManager.instance.isTrustedByAddress(
+            conn.remoteHost,
+          );
+
+          final autoAccepted = autoAcceptTrusted && isTrusted;
+          if (!autoAccepted && autoAcceptTrusted) {
+            // Trusted but auto-accept is off → prompt (not yet implemented)
+            AppLogger.info(
+                '[Receiver] Transfer from $remoteName requires user confirmation');
+          }
+
           parser.sendJson(MessageType.transferAccept, frame.transferId, {
             'transfer_id': transferId,
             'status': 'accepted',
@@ -153,6 +177,8 @@ class TransferReceiver {
               payload['relative_path'] as String? ?? fileName;
           final fileSize = payload['file_size'] as int? ?? 0;
           final totalChunks = payload['total_chunks'] as int? ?? 1;
+          final compressed = payload['compressed'] as bool? ?? false;
+          final encrypted = payload['encrypted'] as bool? ?? false;
 
           final outFile =
               await FileManager.instance.createOutputFile(relativePath);
@@ -163,6 +189,8 @@ class TransferReceiver {
             relativePath: relativePath,
             fileSize: fileSize,
             totalChunks: totalChunks,
+            compressed: compressed,
+            encrypted: encrypted,
             outputFile: raf,
             hasher: _IncrementalHash(),
           );
@@ -215,6 +243,36 @@ class TransferReceiver {
           if (file == null) continue;
 
           await file.outputFile.close();
+
+          final outFile = File(file.outputFile.path);
+          if (!await outFile.exists()) continue;
+
+          // Decrypt first, decompress second
+          List<int> fileBytes = await outFile.readAsBytes();
+
+          if (file.encrypted) {
+            try {
+              fileBytes = EncryptionService.instance.decrypt(
+                frame.transferId.toString(),
+                Uint8List.fromList(fileBytes),
+              );
+              AppLogger.info('[Receiver] Decrypted: ${file.fileName}');
+            } catch (e) {
+              AppLogger.warning(
+                  '[Receiver] Decryption failed for ${file.fileName}: $e');
+              emitProgress(
+                  status: 'failed', error: 'Decryption failed: $e');
+              continue;
+            }
+          }
+
+          if (file.compressed) {
+            fileBytes = CompressionService.instance.decompressBytes(fileBytes);
+            AppLogger.info(
+                '[Receiver] Decompressed: ${file.fileName} (${(await outFile.length())}B -> ${fileBytes.length}B)');
+          }
+
+          await outFile.writeAsBytes(fileBytes);
 
           parser.sendJson(MessageType.ack, frame.transferId, {
             'status': 'ok',

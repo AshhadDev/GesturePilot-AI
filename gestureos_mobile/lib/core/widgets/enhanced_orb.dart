@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import 'package:gesture_os/core/theme/app_colors.dart';
 
@@ -189,11 +190,12 @@ class EnhancedOrb extends StatefulWidget {
 }
 
 class _EnhancedOrbState extends State<EnhancedOrb>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _breathController;
   late final AnimationController _heartbeatController;
   late final AnimationController _particleController;
   late final AnimationController _sparkController;
+  late final Ticker _updateTicker;
   final math.Random _random = math.Random();
 
   // Spring physics state
@@ -241,10 +243,25 @@ class _EnhancedOrbState extends State<EnhancedOrb>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     )..repeat();
+
+    _updateTicker = createTicker(_onUpdateTick)..start();
+  }
+
+  void _onUpdateTick(Duration elapsed) {
+    _updateSpring();
+    _updateRotation();
+    _updateSparks();
+
+    if (widget.state != OrbState.idle) {
+      _heartbeatController.forward(from: 0);
+    }
+
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    _updateTicker.dispose();
     _breathController.dispose();
     _heartbeatController.dispose();
     _particleController.dispose();
@@ -252,19 +269,8 @@ class _EnhancedOrbState extends State<EnhancedOrb>
     super.dispose();
   }
 
-  void _triggerHeartbeat() {
-    _heartbeatController.forward(from: 0);
-  }
-
   @override
   Widget build(BuildContext context) {
-    _updateSpring();
-    _updateRotation();
-    _updateSparks();
-
-    final active = widget.state != OrbState.idle;
-    if (active) _triggerHeartbeat();
-
     return AnimatedBuilder(
       animation: Listenable.merge(
           [_breathController, _heartbeatController, _particleController, _sparkController]),
@@ -344,7 +350,6 @@ class _EnhancedOrbState extends State<EnhancedOrb>
       _trailHistory.removeAt(0);
     }
 
-    if (mounted) setState(() {});
   }
 
   void _updateRotation() {

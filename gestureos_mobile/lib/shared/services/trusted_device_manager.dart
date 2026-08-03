@@ -83,6 +83,9 @@ class TrustedDeviceManager {
   bool isTrusted(String uuid) =>
       _records.any((r) => r.uuid == uuid && r.isTrusted);
 
+  bool isTrustedByAddress(String ip) =>
+      _records.any((r) => r.ip == ip && r.isTrusted);
+
   _TrustedDeviceRecord? _find(String uuid) {
     try {
       return _records.firstWhere((r) => r.uuid == uuid);

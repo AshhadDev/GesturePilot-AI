@@ -24,7 +24,7 @@ class DeviceDiscoveryCard extends StatefulWidget {
 }
 
 class _DeviceDiscoveryCardState extends State<DeviceDiscoveryCard>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _glowController;
   late final AnimationController _enterController;
 

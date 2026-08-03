@@ -1,34 +1,70 @@
 import 'package:flutter/material.dart';
 
 import 'package:gestureos_desktop/core/theme/app_colors.dart';
+import 'package:gestureos_desktop/shared/models/app_models.dart';
 
 class ConnectionBadge extends StatelessWidget {
   const ConnectionBadge({
     super.key,
-    required this.label,
-    required this.isConnected,
+    required this.status,
+    this.label,
   });
 
-  final String label;
-  final bool isConnected;
+  final DeviceConnectionStatus status;
+  final String? label;
+
+  Color get _color {
+    switch (status) {
+      case DeviceConnectionStatus.disconnected:
+        return AppColors.textTertiary;
+      case DeviceConnectionStatus.searching:
+        return AppColors.accent;
+      case DeviceConnectionStatus.connecting:
+        return const Color(0xFF3B82F6);
+      case DeviceConnectionStatus.connected:
+        return AppColors.success;
+    }
+  }
+
+  String get _defaultLabel {
+    switch (status) {
+      case DeviceConnectionStatus.disconnected:
+        return 'Offline';
+      case DeviceConnectionStatus.searching:
+        return 'Searching';
+      case DeviceConnectionStatus.connecting:
+        return 'Connecting';
+      case DeviceConnectionStatus.connected:
+        return 'Connected';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final color = isConnected ? AppColors.success : AppColors.textTertiary;
-    return Container(
+    final color = _color;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOut,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: color.withValues(alpha: 0.3),
+          color: color.withValues(alpha: 0.35),
           width: 1,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.15),
+            blurRadius: 12,
+          ),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 400),
             width: 8,
             height: 8,
             decoration: BoxDecoration(
@@ -36,20 +72,22 @@ class ConnectionBadge extends StatelessWidget {
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: color.withValues(alpha: 0.4),
+                  color: color.withValues(alpha: 0.5),
                   blurRadius: 6,
+                  spreadRadius: 1,
                 ),
               ],
             ),
           ),
           const SizedBox(width: 6),
-          Text(
-            label,
+          AnimatedDefaultTextStyle(
+            duration: const Duration(milliseconds: 400),
             style: TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w600,
               color: color,
             ),
+            child: Text(label ?? _defaultLabel),
           ),
         ],
       ),

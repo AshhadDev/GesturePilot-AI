@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -22,6 +24,7 @@ class _SplashScreenState extends State<SplashScreen>
   late Animation<double> _textOpacityAnimation;
   late Animation<double> _taglineOpacityAnimation;
   late Animation<double> _glowAnimation;
+  Timer? _navTimer;
 
   @override
   void initState() {
@@ -68,7 +71,7 @@ class _SplashScreenState extends State<SplashScreen>
 
     _mainController.forward();
 
-    Future.delayed(AppConstants.splashDuration, () {
+    _navTimer = Timer(AppConstants.splashDuration, () {
       if (mounted) {
         context.goNamed(RouteNames.onboarding);
       }
@@ -77,6 +80,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
+    _navTimer?.cancel();
     _mainController.dispose();
     super.dispose();
   }

@@ -37,16 +37,45 @@ class CompressionService {
     return _alreadyCompressed.contains(ext);
   }
 
+  String? _ext(String path) {
+    return path.contains('.') ? path.split('.').last : null;
+  }
+
+  /// Compresses in-memory bytes using gzip.
+  /// Returns null if compression doesn't reduce size.
+  List<int>? compressBytes(String filePath, List<int> bytes) {
+    final ext = _ext(filePath);
+    if (ext == null) return null;
+    if (isAlreadyCompressed(ext)) return null;
+    if (!isCompressible(ext)) return null;
+    if (bytes.isEmpty) return null;
+
+    final compressed = gzip.encode(bytes);
+    if (compressed.length >= bytes.length) return null;
+
+    final savings = ((bytes.length - compressed.length) / bytes.length * 100);
+    AppLogger.info(
+      'Compressed $filePath: ${bytes.length}B -> ${compressed.length}B (${savings.toStringAsFixed(1)}% saved)',
+    );
+    return compressed;
+  }
+
+  /// Decompresses gzip bytes if they start with gzip magic bytes.
+  List<int> decompressBytes(List<int> bytes) {
+    if (bytes.length > 2 && bytes[0] == 0x1F && bytes[1] == 0x8B) {
+      return gzip.decode(bytes);
+    }
+    return bytes;
+  }
+
   /// Compresses a file in-place using gzip.
   /// Returns compression stats or null if skipped.
   Future<CompressionResult?> compressFile(String filePath) async {
     final file = File(filePath);
     if (!await file.exists()) return null;
 
-    final ext = filePath.contains('.')
-        ? filePath.split('.').last
-        : '';
-
+    final ext = _ext(filePath);
+    if (ext == null) return null;
     if (isAlreadyCompressed(ext)) return null;
     if (!isCompressible(ext)) return null;
 
@@ -58,7 +87,6 @@ class CompressionService {
     final compressed = gzip.encode(bytes);
     stopwatch.stop();
 
-    // Only save if compression actually reduces size
     if (compressed.length >= originalSize) return null;
 
     await file.writeAsBytes(compressed);
@@ -88,11 +116,7 @@ class CompressionService {
     if (!await file.exists()) return [];
 
     final bytes = await file.readAsBytes();
-    // Check gzip magic bytes
-    if (bytes.length > 2 && bytes[0] == 0x1F && bytes[1] == 0x8B) {
-      return gzip.decode(bytes);
-    }
-    return bytes;
+    return decompressBytes(bytes);
   }
 }
 

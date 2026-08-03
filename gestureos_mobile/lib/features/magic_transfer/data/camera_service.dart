@@ -82,7 +82,7 @@ class CameraService {
     _currentCallback = onImage;
     if (_controller == null || !_controller!.value.isInitialized) return;
     if (_refCount > 1) return; // stream already running
-    _controller!.startImageStream(_dispatchImage);
+    _startStream();
   }
 
   /// Unregister a consumer.  Stops the stream only when the last consumer
@@ -92,11 +92,7 @@ class CameraService {
     _refCount = (_refCount - 1).clamp(0, _refCount);
     if (_refCount > 0) return;
     _currentCallback = null;
-    if (_controller != null && _controller!.value.isInitialized) {
-      try {
-        _controller!.stopImageStream();
-      } catch (_) {}
-    }
+    _stopStream();
   }
 
   // ========================================================================
@@ -105,11 +101,7 @@ class CameraService {
 
   /// Temporarily stop delivering frames (e.g. app backgrounded).
   void pause() {
-    if (_controller != null && _controller!.value.isInitialized) {
-      try {
-        _controller!.stopImageStream();
-      } catch (_) {}
-    }
+    _stopStream();
   }
 
   /// Restart frame delivery after [pause].
@@ -117,7 +109,22 @@ class CameraService {
     if (_isDisposed) return;
     if (_controller == null || !_controller!.value.isInitialized) return;
     if (_refCount <= 0 || _currentCallback == null) return;
-    _controller!.startImageStream(_dispatchImage);
+    _startStream();
+  }
+
+  void _startStream() {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+    try {
+      _controller!.startImageStream(_dispatchImage);
+    } catch (_) {}
+  }
+
+  void _stopStream() {
+    if (_controller != null && _controller!.value.isInitialized) {
+      try {
+        _controller!.stopImageStream();
+      } catch (_) {}
+    }
   }
 
   // ========================================================================

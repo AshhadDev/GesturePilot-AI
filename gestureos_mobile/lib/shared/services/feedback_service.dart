@@ -8,7 +8,6 @@ import 'package:gesture_os/core/theme/app_colors.dart';
 
 enum FeedbackEvent {
   handDetected,
-  fistLocked,
   packing,
   transferStart,
   transferSuccess,
@@ -38,8 +37,6 @@ class FeedbackService {
     switch (event) {
       case FeedbackEvent.handDetected:
         HapticFeedback.lightImpact();
-      case FeedbackEvent.fistLocked:
-        HapticFeedback.mediumImpact();
       case FeedbackEvent.packing:
         HapticFeedback.heavyImpact();
       case FeedbackEvent.transferStart:
@@ -113,8 +110,6 @@ class _VisualFeedbackOverlayState extends State<VisualFeedbackOverlay>
     switch (event) {
       case FeedbackEvent.handDetected:
         _rippleColor = AppColors.primary;
-      case FeedbackEvent.fistLocked:
-        _rippleColor = AppColors.accent;
       case FeedbackEvent.transferSuccess:
         _rippleColor = AppColors.success;
       case FeedbackEvent.transferError:

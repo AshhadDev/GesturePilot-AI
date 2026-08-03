@@ -20,7 +20,7 @@ class CarryingScreen extends ConsumerStatefulWidget {
 }
 
 class _CarryingScreenState extends ConsumerState<CarryingScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _bgController;
   late final AnimationController _walkController;
   GestureResult? _lastResult;
@@ -149,7 +149,7 @@ class _CarryingScreenState extends ConsumerState<CarryingScreen>
     final confidence = _lastResult?.confidence ?? 0.5;
     final walkBob = math.sin(_walkPhase) * 6;
 
-    // Orb floats beside fist with trail particles
+    // Orb floats with a walking trail
     return Stack(
       alignment: Alignment.center,
       children: [
@@ -217,7 +217,7 @@ class _CarryingScreenState extends ConsumerState<CarryingScreen>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Keep your hand closed.\nThe orb is carrying your files.',
+                  'Walk to your desktop.\nThe orb is carrying your files.',
                   style: GoogleFonts.poppins(
                     fontSize: 13,
                     color: AppColors.textSecondary,

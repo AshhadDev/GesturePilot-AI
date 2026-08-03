@@ -51,15 +51,14 @@ String _buttonLabel(MagicPickupStep step) {
       return 'Simulate: Open Hand';
 
     case MagicPickupStep.openHandDetected:
-      return 'Simulate: Close Fist';
-
-    case MagicPickupStep.fistConfirmed:
+    case MagicPickupStep.handConfirmed:
       return 'Simulate: Start Packing';
 
     case MagicPickupStep.packing:
       return 'Simulate: Finish Packing';
 
     case MagicPickupStep.packed:
+    case MagicPickupStep.carrying:
       return 'Completed';
   }
 }

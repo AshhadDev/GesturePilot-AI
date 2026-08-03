@@ -21,11 +21,6 @@ abstract class AudioService {
     HapticFeedback.lightImpact();
   }
 
-  static void playFistConfirmed() {
-    _logger.i('Audio: fist confirmed (placeholder)');
-    HapticFeedback.mediumImpact();
-  }
-
   static void playStateTransition() {
     _logger.i('Audio: state transition (placeholder)');
     HapticFeedback.selectionClick();

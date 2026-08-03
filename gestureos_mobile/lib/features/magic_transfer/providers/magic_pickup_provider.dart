@@ -1,28 +1,31 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:gesture_os/features/magic_transfer/domain/gesture_result.dart';
+import 'package:gesture_os/shared/providers/transfer_provider.dart';
 import 'package:gesture_os/shared/services/audio_service.dart';
+import 'package:gesture_os/shared/services/network_service.dart';
 
 // ---------------------------------------------------------------------------
-// State machine (sender side):
-//   idle → openHandDetected → fistConfirmed → packing → packed
+//  New 6-state flow (open-hand only, no fist)
+//   idle → openHandDetected → handConfirmed → packing → packed → carrying
 // ---------------------------------------------------------------------------
 
 enum MagicPickupStep {
   idle,
   openHandDetected,
-  fistConfirmed,
+  handConfirmed,
   packing,
   packed,
+  carrying,
 }
 
 class MagicPickupState {
   const MagicPickupState({
     this.step = MagicPickupStep.idle,
     this.confidence = 0.0,
-    this.holdProgress = 0.0,
     this.packingProgress = 0.0,
     this.isDebugMode = false,
     this.selectedFileCount = 0,
@@ -32,7 +35,6 @@ class MagicPickupState {
 
   final MagicPickupStep step;
   final double confidence;
-  final double holdProgress;
   final double packingProgress;
   final bool isDebugMode;
   final int selectedFileCount;
@@ -41,15 +43,15 @@ class MagicPickupState {
 
   bool get isIdle => step == MagicPickupStep.idle;
   bool get isOpenHandDetected => step == MagicPickupStep.openHandDetected;
-  bool get isFistConfirmed => step == MagicPickupStep.fistConfirmed;
+  bool get isHandConfirmed => step == MagicPickupStep.handConfirmed;
   bool get isPacking => step == MagicPickupStep.packing;
   bool get isPacked => step == MagicPickupStep.packed;
+  bool get isCarrying => step == MagicPickupStep.carrying;
   bool get isComplete => step == MagicPickupStep.packed;
 
   MagicPickupState copyWith({
     MagicPickupStep? step,
     double? confidence,
-    double? holdProgress,
     double? packingProgress,
     bool? isDebugMode,
     int? selectedFileCount,
@@ -59,7 +61,6 @@ class MagicPickupState {
     return MagicPickupState(
       step: step ?? this.step,
       confidence: confidence ?? this.confidence,
-      holdProgress: holdProgress ?? this.holdProgress,
       packingProgress: packingProgress ?? this.packingProgress,
       isDebugMode: isDebugMode ?? this.isDebugMode,
       selectedFileCount: selectedFileCount ?? this.selectedFileCount,
@@ -70,15 +71,14 @@ class MagicPickupState {
 }
 
 class MagicPickupNotifier extends StateNotifier<MagicPickupState> {
-  MagicPickupNotifier() : super(const MagicPickupState());
+  final Ref _ref;
+  MagicPickupNotifier(this._ref) : super(const MagicPickupState());
 
-  Timer? _fistHoldTimer;
-  Timer? _packingTimer;
+  Timer? _handConfirmTimer;
 
   @override
   void dispose() {
-    _fistHoldTimer?.cancel();
-    _packingTimer?.cancel();
+    _handConfirmTimer?.cancel();
     super.dispose();
   }
 
@@ -91,13 +91,9 @@ class MagicPickupNotifier extends StateNotifier<MagicPickupState> {
   }
 
   // ========================================================================
-  //  Camera callbacks
+  //  Called by camera_preview_widget on reliable hand transitions
   // ========================================================================
 
-  /// Hand appeared — transition idle → openHandDetected.
-  /// The downstream onFistDetected handles advancing to fistConfirmed
-  /// if the hand is already a fist; for open palms the user closes
-  /// their fist and onFistDetected handles that too.
   void onHandDetected(GestureResult result) {
     if (state.step != MagicPickupStep.idle) return;
     state = state.copyWith(
@@ -105,56 +101,102 @@ class MagicPickupNotifier extends StateNotifier<MagicPickupState> {
       confidence: result.confidence,
     );
     AudioService.playHandDetected();
+    _startHandConfirmTimer();
   }
 
-  /// Fist appeared — transition openHandDetected → fistConfirmed + 300 ms hold.
-  void onFistDetected(GestureResult result) {
-    if (state.step != MagicPickupStep.openHandDetected) return;
-    state = state.copyWith(
-      step: MagicPickupStep.fistConfirmed,
-      confidence: result.confidence,
-      holdProgress: 0.0,
-    );
-    AudioService.playFistConfirmed();
-    _startFistHoldTimer();
-  }
-
-  /// Fist opened (but hand still present) — revert to openHandDetected.
-  void onFistLost() {
-    if (state.step == MagicPickupStep.fistConfirmed) {
-      _fistHoldTimer?.cancel();
-      state = state.copyWith(
-        step: MagicPickupStep.openHandDetected,
-        holdProgress: 0.0,
-      );
-    } else if (state.step == MagicPickupStep.idle) {
-      // Hand was a fist when it first appeared — now it's an open palm.
-      state = state.copyWith(step: MagicPickupStep.openHandDetected);
-      AudioService.playHandDetected();
-    }
-  }
-
-  /// Hand left the frame entirely.
   void onHandLost() {
     if (state.step == MagicPickupStep.openHandDetected ||
-        state.step == MagicPickupStep.fistConfirmed) {
-      _fistHoldTimer?.cancel();
+        state.step == MagicPickupStep.handConfirmed) {
+      _handConfirmTimer?.cancel();
       state = const MagicPickupState();
     }
   }
 
-  /// Update gesture confidence scalar (called every frame).
   void updateConfidence(double confidence) {
     state = state.copyWith(confidence: confidence.clamp(0.0, 1.0));
   }
 
-  /// Update hand position for MagicOrb tracking.
   void updateHandPosition(double x, double y) {
     state = state.copyWith(handX: x.clamp(0.0, 1.0), handY: y.clamp(0.0, 1.0));
   }
 
   // ========================================================================
-  //  Advance helpers (simulateAdvance uses these)
+  //  Timer: openHandDetected → handConfirmed (500 ms steady hold)
+  // ========================================================================
+
+  void _startHandConfirmTimer() {
+    _handConfirmTimer?.cancel();
+    _handConfirmTimer = Timer(const Duration(milliseconds: 500), () {
+      if (state.step != MagicPickupStep.openHandDetected) return;
+      state = state.copyWith(
+        step: MagicPickupStep.handConfirmed,
+        confidence: state.confidence,
+      );
+      AudioService.playPickupStart();
+      _startPacking();
+    });
+  }
+
+  // ========================================================================
+  //  Real packing: handConfirmed → packed (file preparation)
+  // ========================================================================
+
+  void _startPacking() {
+    state = state.copyWith(
+      step: MagicPickupStep.packing,
+      packingProgress: 0.0,
+    );
+
+    _doPacking();
+  }
+
+  Future<void> _doPacking() async {
+    final files = _ref.read(transferProvider).selectedFiles;
+    final total = files.length;
+
+    if (total == 0) {
+      _completePacking();
+      return;
+    }
+
+    state = state.copyWith(selectedFileCount: total);
+
+    for (int i = 0; i < total; i++) {
+      if (state.step != MagicPickupStep.packing) return;
+      final file = files[i];
+      final entity = FileSystemEntity.typeSync(file.path);
+      if (entity == FileSystemEntityType.notFound) {
+        continue;
+      }
+
+      final progress = ((i + 1) / total).clamp(0.0, 1.0);
+      state = state.copyWith(packingProgress: progress);
+
+      // Small yield to keep UI responsive
+      await Future.delayed(const Duration(milliseconds: 16));
+    }
+
+    _completePacking();
+  }
+
+  void _completePacking() {
+    if (state.step != MagicPickupStep.packing) return;
+    state = state.copyWith(
+      step: MagicPickupStep.packed,
+      packingProgress: 1.0,
+    );
+    AudioService.playPackingComplete();
+  }
+
+  void transitionToCarrying() {
+    if (state.step != MagicPickupStep.packed) return;
+    state = state.copyWith(step: MagicPickupStep.carrying);
+    _ref.read(transferProvider.notifier).setStatus(TransferState.carrying);
+    NetworkService.instance.startServer();
+  }
+
+  // ========================================================================
+  //  Advance helpers (used by DebugSimulationButton)
   // ========================================================================
 
   void advanceToOpenHandDetected() {
@@ -164,39 +206,22 @@ class MagicPickupNotifier extends StateNotifier<MagicPickupState> {
       confidence: 0.85,
     );
     AudioService.playHandDetected();
-  }
-
-  void advanceToFistConfirmed() {
-    if (state.step != MagicPickupStep.openHandDetected) return;
-    state = state.copyWith(
-      step: MagicPickupStep.fistConfirmed,
-      confidence: 0.92,
-      holdProgress: 0.0,
-    );
-    AudioService.playFistConfirmed();
-    _startFistHoldTimer();
+    _startHandConfirmTimer();
   }
 
   void advanceToPacking() {
-    if (state.step != MagicPickupStep.fistConfirmed) return;
-    _fistHoldTimer?.cancel();
-    state = state.copyWith(
-      step: MagicPickupStep.packing,
-      holdProgress: 1.0,
-      packingProgress: 0.0,
-    );
+    if (state.step != MagicPickupStep.openHandDetected &&
+        state.step != MagicPickupStep.handConfirmed) {
+      return;
+    }
+    _handConfirmTimer?.cancel();
     AudioService.playPickupStart();
-    _simulatePacking();
+    _startPacking();
   }
 
   void advanceToPacked() {
     if (state.step != MagicPickupStep.packing) return;
-    _packingTimer?.cancel();
-    state = state.copyWith(
-      step: MagicPickupStep.packed,
-      packingProgress: 1.0,
-    );
-    AudioService.playPackingComplete();
+    _completePacking();
   }
 
   void simulateAdvance() {
@@ -204,76 +229,23 @@ class MagicPickupNotifier extends StateNotifier<MagicPickupState> {
       case MagicPickupStep.idle:
         advanceToOpenHandDetected();
       case MagicPickupStep.openHandDetected:
-        advanceToFistConfirmed();
-      case MagicPickupStep.fistConfirmed:
+      case MagicPickupStep.handConfirmed:
         advanceToPacking();
       case MagicPickupStep.packing:
         advanceToPacked();
       case MagicPickupStep.packed:
+      case MagicPickupStep.carrying:
         break;
     }
   }
 
-  // ========================================================================
-  //  Timers
-  // ========================================================================
-
-  void _startFistHoldTimer() {
-    _fistHoldTimer?.cancel();
-    const duration = Duration(milliseconds: 500);
-    const interval = Duration(milliseconds: 16);
-    final steps = duration.inMilliseconds / interval.inMilliseconds;
-    var count = 0;
-
-    _fistHoldTimer = Timer.periodic(interval, (_) {
-      if (!_isValidState(MagicPickupStep.fistConfirmed)) {
-        _fistHoldTimer?.cancel();
-        return;
-      }
-      count++;
-      final progress = (count / steps).clamp(0.0, 1.0);
-      state = state.copyWith(holdProgress: progress);
-      if (progress >= 1.0) {
-        _fistHoldTimer?.cancel();
-        advanceToPacking();
-      }
-    });
-  }
-
-  void _simulatePacking() {
-    const duration = Duration(milliseconds: 2000);
-    const interval = Duration(milliseconds: 16);
-    final steps = duration.inMilliseconds / interval.inMilliseconds;
-    var count = 0;
-
-    _packingTimer?.cancel();
-    _packingTimer = Timer.periodic(interval, (_) {
-      if (!_isValidState(MagicPickupStep.packing)) {
-        _packingTimer?.cancel();
-        return;
-      }
-      count++;
-      final progress = (count / steps).clamp(0.0, 1.0);
-      state = state.copyWith(packingProgress: progress);
-      if (progress >= 1.0) {
-        _packingTimer?.cancel();
-        advanceToPacked();
-      }
-    });
-  }
-
   void resetToIdle() {
-    _fistHoldTimer?.cancel();
-    _packingTimer?.cancel();
+    _handConfirmTimer?.cancel();
     state = const MagicPickupState();
-  }
-
-  bool _isValidState(MagicPickupStep expected) {
-    return state.step == expected;
   }
 }
 
 final magicPickupProvider =
     StateNotifierProvider<MagicPickupNotifier, MagicPickupState>((ref) {
-  return MagicPickupNotifier();
+  return MagicPickupNotifier(ref);
 });

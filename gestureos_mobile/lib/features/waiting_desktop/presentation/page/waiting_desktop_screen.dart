@@ -22,7 +22,7 @@ class WaitingDesktopScreen extends ConsumerStatefulWidget {
 }
 
 class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   Device? _selectedDevice;
   late final AnimationController _radarController;
   late final AnimationController _pulseController;

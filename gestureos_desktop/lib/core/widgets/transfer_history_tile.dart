@@ -8,9 +8,13 @@ class TransferHistoryTile extends StatefulWidget {
   const TransferHistoryTile({
     super.key,
     required this.item,
+    this.onOpenFile,
+    this.onOpenFolder,
   });
 
   final TransferHistoryItem item;
+  final VoidCallback? onOpenFile;
+  final VoidCallback? onOpenFolder;
 
   @override
   State<TransferHistoryTile> createState() => _TransferHistoryTileState();
@@ -73,7 +77,10 @@ class _TransferHistoryTileState extends State<TransferHistoryTile> {
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
-      child: AnimatedContainer(
+      child: GestureDetector(
+        onDoubleTap: () => widget.onOpenFile?.call(),
+        onSecondaryTapUp: (details) => _showContextMenu(details),
+        child: AnimatedContainer(
         duration: AppDimensions.animFast,
         padding: const EdgeInsets.all(AppDimensions.spacingMd),
         decoration: BoxDecoration(
@@ -174,7 +181,44 @@ class _TransferHistoryTileState extends State<TransferHistoryTile> {
           ],
         ),
       ),
+      ),
     );
+  }
+
+  void _showContextMenu(TapUpDetails details) {
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (overlay == null) return;
+    showMenu<int>(
+      context: context,
+      position: RelativeRect.fromRect(
+        details.globalPosition & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      color: AppColors.surface,
+      items: [
+        if (widget.onOpenFile != null)
+          const PopupMenuItem<int>(
+            value: 0,
+            child: ListTile(
+              leading: Icon(Icons.open_in_new_rounded),
+              title: Text('Open File'),
+            ),
+          ),
+        if (widget.onOpenFolder != null)
+          const PopupMenuItem<int>(
+            value: 1,
+            child: ListTile(
+              leading: Icon(Icons.folder_open_rounded),
+              title: Text('Open Containing Folder'),
+            ),
+          ),
+      ],
+    ).then((value) {
+      if (value == null) return;
+      if (value == 0) widget.onOpenFile?.call();
+      if (value == 1) widget.onOpenFolder?.call();
+    });
   }
 
   String _formatTime(DateTime dt) {

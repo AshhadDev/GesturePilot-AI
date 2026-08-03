@@ -279,6 +279,8 @@ class TransferNotifier extends StateNotifier<TransferStateData> {
     }
     _recordHistory('cancelled');
     _progressSub?.cancel();
+    _queueSub?.cancel();
+    _queueSub = null;
     state = const TransferStateData();
   }
 

@@ -46,6 +46,9 @@ class EncryptionService {
     return Uint8List.fromList(hash.bytes);
   }
 
+  /// Returns the session key for a transfer, or null.
+  Uint8List? getSessionKey(String transferId) => _sessionKeys[transferId];
+
   /// Stores the session key for a given transfer.
   void setSessionKey(String transferId, Uint8List key) {
     _sessionKeys[transferId] = key;

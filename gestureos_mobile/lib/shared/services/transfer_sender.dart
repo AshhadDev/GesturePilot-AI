@@ -10,6 +10,8 @@ import 'package:gesture_os/shared/models/app_file.dart';
 import 'package:gesture_os/shared/models/device_model.dart';
 import 'package:gesture_os/shared/protocol/frame_parser.dart';
 import 'package:gesture_os/shared/protocol/protocol.dart';
+import 'package:gesture_os/shared/services/compression_service.dart';
+import 'package:gesture_os/shared/services/encryption_service.dart';
 import 'package:gesture_os/shared/services/file_manager.dart';
 import 'package:gesture_os/shared/services/network_service.dart';
 import 'package:gesture_os/shared/services/transfer_service.dart';
@@ -193,7 +195,35 @@ class TransferSender {
       return false;
     }
 
-    final fileSize = await file.length();
+    var fileSize = await file.length();
+    bool compressed = false;
+
+    // Try compression
+    final rawBytes = await file.readAsBytes();
+    final compressedBytes = CompressionService.instance.compressBytes(entry.fileName, rawBytes);
+    List<int> sendData;
+    if (compressedBytes != null) {
+      sendData = compressedBytes;
+      fileSize = sendData.length;
+      compressed = true;
+    } else {
+      sendData = rawBytes;
+    }
+
+    // Encrypt if session key available
+    bool encrypted = false;
+    final tid = _transferId.toString();
+    final sessionKey = EncryptionService.instance.getSessionKey(tid);
+    if (sessionKey != null) {
+      final encryptedResult = EncryptionService.instance.encrypt(
+        tid,
+        Uint8List.fromList(sendData),
+      );
+      sendData = encryptedResult.$1;
+      fileSize = sendData.length;
+      encrypted = true;
+    }
+
     final totalChunks =
         (fileSize + ProtocolConstants.defaultChunkSize - 1) ~/ ProtocolConstants.defaultChunkSize;
 
@@ -205,6 +235,8 @@ class TransferSender {
       'total_chunks': totalChunks,
       'last_modified': entry.lastModified.toIso8601String(),
       'mime_type': entry.mimeType,
+      'compressed': compressed,
+      'encrypted': encrypted,
     });
 
     onProgress(TransferProgress(
@@ -221,52 +253,34 @@ class TransferSender {
     final digester = sha256.startChunkedConversion(digestSink);
 
     try {
-      final stream = file.openRead();
+      digester.add(sendData);
       int chunkIndex = 0;
-      int fileBytesRead = 0;
-      final chunkBuffer = <int>[];
+      int offset = 0;
 
-      await for (final data in stream) {
-        digester.add(data);
-        chunkBuffer.addAll(data);
+      while (offset < sendData.length) {
+        final take = (offset + ProtocolConstants.defaultChunkSize < sendData.length)
+            ? ProtocolConstants.defaultChunkSize
+            : sendData.length - offset;
+        final chunk = Uint8List.fromList(sendData.sublist(offset, offset + take));
+        offset += take;
 
-        while (chunkBuffer.length >= ProtocolConstants.defaultChunkSize ||
-            (chunkBuffer.isNotEmpty &&
-                fileBytesRead + chunkBuffer.length >= fileSize &&
-                chunkBuffer.length <= ProtocolConstants.defaultChunkSize)) {
-          final take = chunkBuffer.length > ProtocolConstants.defaultChunkSize
-              ? ProtocolConstants.defaultChunkSize
-              : chunkBuffer.length;
-          final chunk = Uint8List.fromList(chunkBuffer.sublist(0, take));
-          chunkBuffer.removeRange(0, take);
-
-          _parser!.sendBinary(MessageType.fileChunk, _transferId, chunk,
-              chunkIndex: chunkIndex);
-
-          _transferredBytes += take;
-          fileBytesRead += take;
-
-          onProgress(TransferProgress(
-            progress: _totalBytes > 0 ? _transferredBytes / _totalBytes : 0,
-            status: 'transferring',
-            currentFileName: entry.fileName,
-            currentFileIndex: fileIndex,
-            totalFiles: totalFiles,
-            totalBytes: _totalBytes,
-            transferredBytes: _transferredBytes,
-            currentChunk: chunkIndex,
-            totalChunks: totalChunks,
-          ));
-
-          chunkIndex++;
-        }
-      }
-
-      if (chunkBuffer.isNotEmpty) {
-        final chunk = Uint8List.fromList(chunkBuffer);
         _parser!.sendBinary(MessageType.fileChunk, _transferId, chunk,
             chunkIndex: chunkIndex);
-        _transferredBytes += chunk.length;
+
+        _transferredBytes += take;
+
+        onProgress(TransferProgress(
+          progress: _totalBytes > 0 ? _transferredBytes / _totalBytes : 0,
+          status: 'transferring',
+          currentFileName: entry.fileName,
+          currentFileIndex: fileIndex,
+          totalFiles: totalFiles,
+          totalBytes: _totalBytes,
+          transferredBytes: _transferredBytes,
+          currentChunk: chunkIndex,
+          totalChunks: totalChunks,
+        ));
+
         chunkIndex++;
       }
 
