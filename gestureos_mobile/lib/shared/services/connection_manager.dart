@@ -1,17 +1,18 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:gestureos_desktop/core/utils/logger.dart';
-import 'package:gestureos_desktop/shared/models/app_models.dart';
-import 'package:gestureos_desktop/shared/models/device_model.dart';
-import 'package:gestureos_desktop/shared/protocol/frame_parser.dart';
-import 'package:gestureos_desktop/shared/protocol/protocol.dart';
-import 'package:gestureos_desktop/shared/services/discovery_service.dart';
-import 'package:gestureos_desktop/shared/services/network_service.dart';
-import 'package:gestureos_desktop/shared/services/settings_service.dart';
-import 'package:gestureos_desktop/shared/services/transfer_service.dart';
-import 'package:gestureos_desktop/shared/services/trusted_device_manager.dart';
+import 'package:gesture_os/core/utils/logger.dart';
+import 'package:gesture_os/shared/models/device_model.dart';
+import 'package:gesture_os/shared/protocol/frame_parser.dart';
+import 'package:gesture_os/shared/protocol/protocol.dart';
+import 'package:gesture_os/shared/services/discovery_service.dart';
+import 'package:gesture_os/shared/services/network_service.dart';
+import 'package:gesture_os/shared/services/settings_service.dart';
+import 'package:gesture_os/shared/services/transfer_service.dart';
+import 'package:gesture_os/shared/services/trusted_device_manager.dart';
 
+/// Mirrors the desktop [ConnectionPhase] so both apps expose the same
+/// synchronized connection lifecycle.
 enum ConnectionPhase {
   offline,
   searching,
@@ -56,23 +57,6 @@ class ConnectionSnapshot {
     );
   }
 
-  String get statusText {
-    switch (phase) {
-      case ConnectionPhase.offline:
-        return 'Standby — enable discovery or scan a QR';
-      case ConnectionPhase.searching:
-        return 'Searching network...';
-      case ConnectionPhase.connecting:
-        return 'Phone detected';
-      case ConnectionPhase.connected:
-        return 'Secure channel established';
-      case ConnectionPhase.receiving:
-        return 'Receiving files...';
-      case ConnectionPhase.completed:
-        return 'Transfer complete';
-    }
-  }
-
   Map<String, dynamic> toJson() => {
         'phase': phase.name,
         'deviceName': deviceName,
@@ -82,18 +66,20 @@ class ConnectionSnapshot {
         'totalBytes': totalBytes,
       };
 
-  DeviceConnectionStatus get badgeStatus {
+  String get statusText {
     switch (phase) {
       case ConnectionPhase.offline:
-        return DeviceConnectionStatus.disconnected;
+        return 'Standby';
       case ConnectionPhase.searching:
-        return DeviceConnectionStatus.searching;
+        return 'Searching network...';
       case ConnectionPhase.connecting:
-        return DeviceConnectionStatus.connecting;
+        return 'Desktop detected';
       case ConnectionPhase.connected:
+        return 'Secure channel established';
       case ConnectionPhase.receiving:
+        return 'Receiving files...';
       case ConnectionPhase.completed:
-        return DeviceConnectionStatus.connected;
+        return 'Transfer complete';
     }
   }
 }
@@ -107,7 +93,6 @@ class ConnectionManager {
   StreamSubscription<DiscoveryEvent>? _discoverySub;
   StreamSubscription<TcpConnection>? _incomingSub;
   StreamSubscription<TransferProgress>? _transferSub;
-  StreamSubscription<List<Device>>? _trustedSub;
   bool _started = false;
   ConnectionSnapshot _state = const ConnectionSnapshot();
   Timer? _completedTimer;
@@ -163,6 +148,14 @@ class ConnectionManager {
       deviceName: conn.remoteHost,
     ));
     AppLogger.info('[Connection] Incoming connection from ${conn.remoteHost}');
+
+    // Trusted senders are accepted automatically; the receiver UI (open-hand
+    // detection) remains the gate for anything else.
+    final isTrusted =
+        TrustedDeviceManager.instance.isTrustedByAddress(conn.remoteHost);
+    if (isTrusted || SettingsService.instance.autoAcceptTrusted) {
+      unawaited(TransferService.instance.handleIncomingTransfer(conn));
+    }
   }
 
   void _onTransferProgress(TransferProgress p) {
@@ -211,6 +204,7 @@ class ConnectionManager {
 
   Future<void> attemptTrustedReconnect() async {
     try {
+      await TrustedDeviceManager.instance.load();
       final devices = TrustedDeviceManager.instance.trustedDevices;
       if (devices.isEmpty) return;
 
@@ -244,7 +238,8 @@ class ConnectionManager {
     try {
       final parser = FrameParser(conn);
       parser.start();
-      parser.sendJson(MessageType.hello, DateTime.now().microsecondsSinceEpoch, {
+      parser.sendJson(
+          MessageType.hello, DateTime.now().microsecondsSinceEpoch, {
         'device_name': Platform.localHostname,
         'protocol_version': ProtocolConstants.version,
       });
@@ -301,9 +296,7 @@ class ConnectionManager {
     if (_state.phase == ConnectionPhase.offline ||
         _state.phase == ConnectionPhase.searching) {
       _setState(_state.copyWith(
-        phase: enabled
-            ? ConnectionPhase.searching
-            : ConnectionPhase.offline,
+        phase: enabled ? ConnectionPhase.searching : ConnectionPhase.offline,
         deviceName: null,
       ));
     }
@@ -313,7 +306,6 @@ class ConnectionManager {
     await _discoverySub?.cancel();
     await _incomingSub?.cancel();
     await _transferSub?.cancel();
-    await _trustedSub?.cancel();
     _completedTimer?.cancel();
     await _stateController.close();
     _started = false;

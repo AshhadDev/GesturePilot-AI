@@ -15,7 +15,9 @@ import 'package:gesture_os/features/magic_transfer/presentation/widgets/camera_p
 import 'package:gesture_os/features/receiver/providers/receiver_provider.dart';
 import 'package:gesture_os/shared/providers/transfer_provider.dart';
 import 'package:gesture_os/shared/services/network_service.dart';
+import 'package:gesture_os/shared/services/settings_service.dart';
 import 'package:gesture_os/shared/services/transfer_service.dart';
+import 'package:gesture_os/shared/services/trusted_device_manager.dart';
 
 class ReceiverScreen extends ConsumerStatefulWidget {
   const ReceiverScreen({super.key});
@@ -40,6 +42,13 @@ class _ReceiverScreenState extends ConsumerState<ReceiverScreen>
     _connSub = NetworkService.instance.onIncomingConnection.listen((conn) {
       final notifier = ref.read(receiverProvider.notifier);
       notifier.onIncomingConnection(conn.remoteHost);
+      // Trusted connections are already auto-accepted by the global
+      // ConnectionManager — skip so they aren't handled twice.
+      final isTrusted =
+          TrustedDeviceManager.instance.isTrustedByAddress(conn.remoteHost);
+      if (isTrusted || SettingsService.instance.autoAcceptTrusted) {
+        return;
+      }
       // Only start receiving when the receiver's hand is detected.
       // Otherwise buffer the connection so a just-detected hand can
       // process it via the transition check in build().

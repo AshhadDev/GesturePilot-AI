@@ -37,6 +37,7 @@ class MessageType {
   static const int chunkRequest = 0x0011;
   static const int chunkData = 0x0012;
   static const int keepAlive = 0x0013;
+  static const int stateSync = 0x0014;
 
   static String name(int type) {
     switch (type) {
@@ -59,6 +60,7 @@ class MessageType {
       case chunkRequest: return 'CHUNK_REQUEST';
       case chunkData: return 'CHUNK_DATA';
       case keepAlive: return 'KEEP_ALIVE';
+      case stateSync: return 'STATE_SYNC';
       default: return 'UNKNOWN($type)';
     }
   }

@@ -40,7 +40,13 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   void initState() {
     super.initState();
     _localCode = PairingService.instance.generateVerificationCode();
-    ref.read(pairingVerificationCodeProvider.notifier).state = _localCode;
+    // Defer provider mutation out of initState to avoid modifying a provider
+    // while the widget tree is building.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(pairingVerificationCodeProvider.notifier).state = _localCode;
+      }
+    });
 
     PairingService.instance.startPairing(
       Device(

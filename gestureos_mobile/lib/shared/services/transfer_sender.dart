@@ -5,15 +5,18 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
+import 'package:gesture_os/core/services/device_info_service.dart';
 import 'package:gesture_os/core/utils/logger.dart';
 import 'package:gesture_os/shared/models/app_file.dart';
 import 'package:gesture_os/shared/models/device_model.dart';
 import 'package:gesture_os/shared/protocol/frame_parser.dart';
 import 'package:gesture_os/shared/protocol/protocol.dart';
 import 'package:gesture_os/shared/services/compression_service.dart';
+import 'package:gesture_os/shared/services/connection_manager.dart';
 import 'package:gesture_os/shared/services/encryption_service.dart';
 import 'package:gesture_os/shared/services/file_manager.dart';
 import 'package:gesture_os/shared/services/network_service.dart';
+import 'package:gesture_os/shared/services/qr_pairing_service.dart';
 import 'package:gesture_os/shared/services/transfer_service.dart';
 
 class _DigestSink implements Sink<Digest> {
@@ -68,6 +71,14 @@ class TransferSender {
     _parser = FrameParser(conn);
     _parser!.start();
 
+    // Mirror the peer's connection phase during the session.
+    StreamSubscription<Frame>? syncSub;
+    syncSub = _parser!.frames.listen((frame) {
+      if (frame.messageType == MessageType.stateSync) {
+        ConnectionManager.instance.applyRemoteState(frame.jsonPayload);
+      }
+    });
+
     try {
       final handshakeOk = await _doHandshake(target, onProgress);
       if (!handshakeOk) return SendResult(false, 'Handshake failed');
@@ -115,6 +126,7 @@ class TransferSender {
       AppLogger.error('[Sender] Error', e);
       return SendResult(false, 'Transfer failed: $e');
     } finally {
+      await syncSub.cancel();
       NetworkService.instance.disconnect(conn.id);
       _parser?.close();
     }
@@ -122,13 +134,25 @@ class TransferSender {
 
   Future<bool> _doHandshake(
       Device target, void Function(TransferProgress) onProgress) async {
+    // Include QR session credentials so a desktop that just showed its QR
+    // code recognizes this phone and reciprocates trust during HELLO.
+    final qrPayload = QrPairingService.instance.lastPayload;
+    final info = await DeviceInfoService.instance.getInfo();
     _parser!.sendJson(MessageType.hello, _transferId, {
       'device_name': Platform.localHostname,
       'protocol_version': ProtocolConstants.version,
+      if (qrPayload != null) 'device_id': info.id,
+      if (qrPayload != null) 'session_token': qrPayload.sessionToken,
     });
 
     final reply =
         await _parser!.waitForFrame(MessageType.hello, timeout: Duration(seconds: 10));
+    if (reply != null) {
+      try {
+        _parser!.sendJson(MessageType.stateSync, _transferId,
+            ConnectionManager.instance.currentState.toJson());
+      } catch (_) {}
+    }
     return reply != null;
   }
 

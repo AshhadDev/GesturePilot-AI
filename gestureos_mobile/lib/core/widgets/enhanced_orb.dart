@@ -7,8 +7,11 @@ import 'package:gesture_os/core/theme/app_colors.dart';
 
 enum OrbState {
   idle,
+  searching,
+  pairing,
   awakening,
   active,
+  connected,
   carrying,
   packing,
   launching,
@@ -49,6 +52,28 @@ class _StateVisualIdentity {
     bloomIntensity: 0.05,
   );
 
+  static const searching = _StateVisualIdentity(
+    primaryColor: AppColors.secondary,
+    accentColor: AppColors.accent,
+    glowColor: AppColors.glowPurpleStrong,
+    rotationSpeed: 0.35,
+    sparkRate: 0.05,
+    plasmaSpeed: 0.25,
+    arcIntensity: 0.3,
+    bloomIntensity: 0.1,
+  );
+
+  static const pairing = _StateVisualIdentity(
+    primaryColor: AppColors.primary,
+    accentColor: AppColors.secondary,
+    glowColor: AppColors.glowPurpleStrong,
+    rotationSpeed: 0.7,
+    sparkRate: 0.15,
+    plasmaSpeed: 0.6,
+    arcIntensity: 0.7,
+    bloomIntensity: 0.25,
+  );
+
   static const awakening = _StateVisualIdentity(
     primaryColor: AppColors.accent,
     accentColor: AppColors.secondary,
@@ -69,6 +94,17 @@ class _StateVisualIdentity {
     plasmaSpeed: 0.7,
     arcIntensity: 0.7,
     bloomIntensity: 0.25,
+  );
+
+  static const connected = _StateVisualIdentity(
+    primaryColor: AppColors.success,
+    accentColor: AppColors.accent,
+    glowColor: AppColors.glowPurple,
+    rotationSpeed: 0.4,
+    sparkRate: 0.08,
+    plasmaSpeed: 0.35,
+    arcIntensity: 0.35,
+    bloomIntensity: 0.2,
   );
 
   static const carrying = _StateVisualIdentity(
@@ -141,10 +177,16 @@ class _StateVisualIdentity {
     switch (state) {
       case OrbState.idle:
         return idle;
+      case OrbState.searching:
+        return searching;
+      case OrbState.pairing:
+        return pairing;
       case OrbState.awakening:
         return awakening;
       case OrbState.active:
         return active;
+      case OrbState.connected:
+        return connected;
       case OrbState.carrying:
         return carrying;
       case OrbState.packing:

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:gesture_os/core/services/device_info_service.dart';
 import 'package:gesture_os/core/utils/logger.dart';
 import 'package:gesture_os/shared/models/device_model.dart';
+import 'package:gesture_os/shared/services/network_service.dart';
 
 class DiscoveryEvent {
   final Device device;
@@ -231,7 +232,7 @@ class DiscoveryService {
     try {
       final info = await DeviceInfoService.instance.getInfo();
       final msg = 'GESTUREOS_DISCOVERY_RESP|${info.id}|${info.name}|'
-          '${info.platform.index}|${info.ip}|$_discoveryPort|$_batteryLevel';
+          '${info.platform.index}|${info.ip}|${NetworkService.instance.dataPort}|$_batteryLevel';
       _socket!.send(utf8.encode(msg), addr, port);
     } catch (_) {}
   }
@@ -241,7 +242,7 @@ class DiscoveryService {
     try {
       final info = await DeviceInfoService.instance.getInfo();
       final msg = 'GESTUREOS_DISCOVERY_REQ|${info.id}|${info.name}|'
-          '${info.platform.index}|||$_batteryLevel';
+          '${info.platform.index}|${info.ip}|${NetworkService.instance.dataPort}|$_batteryLevel';
       _socket!.send(
         utf8.encode(msg),
         InternetAddress('255.255.255.255'),
@@ -255,7 +256,7 @@ class DiscoveryService {
     try {
       final info = await DeviceInfoService.instance.getInfo();
       final msg = 'GESTUREOS_HEARTBEAT|${info.id}|${info.name}|'
-          '${info.platform.index}|${info.ip}|$_discoveryPort|$_batteryLevel';
+          '${info.platform.index}|${info.ip}|${NetworkService.instance.dataPort}|$_batteryLevel';
       _socket!.send(
         utf8.encode(msg),
         InternetAddress('255.255.255.255'),

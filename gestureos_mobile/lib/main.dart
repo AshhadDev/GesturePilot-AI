@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:gesture_os/app/app.dart';
 import 'package:gesture_os/core/utils/logger.dart';
+import 'package:gesture_os/shared/services/connection_manager.dart';
 import 'package:gesture_os/shared/services/network_service.dart';
 import 'package:gesture_os/shared/services/settings_service.dart';
 
@@ -39,7 +40,8 @@ Future<void> _initServices() async {
   await SettingsService.instance.load();
   final network = NetworkService.instance;
   await network.startServer();
-  // Incoming transfers are gated by the receiver screen's open-hand
-  // detection flow, so no unconditional auto-accept here.
+  // Global connection manager: tracks synchronized connection state, auto-
+  // accepts transfers from trusted devices and attempts trusted reconnects.
+  await ConnectionManager.instance.start();
   AppLogger.info('Network service initialized on port 48772');
 }

@@ -31,7 +31,13 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
 
   @override
   void dispose() {
-    ref.read(discoveryControllerProvider).stop();
+    // Defer past widget teardown so the controller can still read providers
+    // without touching an already-defunct element.
+    Future.microtask(() async {
+      try {
+        await ref.read(discoveryControllerProvider).stop();
+      } catch (_) {}
+    });
     super.dispose();
   }
 
@@ -56,6 +62,14 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
           ),
         ),
         actions: [
+          IconButton(
+            onPressed: () => context.pushNamed(RouteNames.qrScanner),
+            icon: const Icon(
+              Icons.qr_code_scanner_rounded,
+              color: AppColors.textPrimary,
+            ),
+            tooltip: 'Scan desktop QR code',
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Container(

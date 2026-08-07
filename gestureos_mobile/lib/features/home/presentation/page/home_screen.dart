@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gesture_os/core/theme/app_colors.dart';
 import 'package:gesture_os/core/widgets/bottom_nav_bar.dart';
+import 'package:gesture_os/core/widgets/enhanced_orb.dart';
 import 'package:gesture_os/core/widgets/statistic_card.dart';
 import 'package:gesture_os/core/widgets/connection_badge.dart';
 import 'package:gesture_os/features/home/presentation/widgets/magic_transfer_button.dart';
@@ -10,6 +11,8 @@ import 'package:gesture_os/features/devices/presentation/page/devices_screen.dar
 import 'package:gesture_os/features/settings/presentation/page/settings_screen.dart';
 import 'package:gesture_os/core/services/device_info_service.dart';
 import 'package:gesture_os/shared/services/clipboard_service.dart';
+import 'package:gesture_os/shared/providers/connection_providers.dart';
+import 'package:gesture_os/shared/services/connection_manager.dart';
 
 /// Main dashboard screen after onboarding.
 class HomeScreen extends ConsumerStatefulWidget {
@@ -89,6 +92,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+              sliver: SliverToBoxAdapter(
+                child: _buildConnectionOrb(),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
               sliver: SliverToBoxAdapter(
                 child: _buildDesktopCard(),
               ),
@@ -197,6 +206,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Widget _buildDesktopCard() {
+    final snapshot = ref.watch(connectionStateProvider).value ??
+        ConnectionManager.instance.currentState;
+    final (label, connected, pending) = _badgeForPhase(snapshot.phase);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -250,10 +262,58 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ],
             ),
           ),
-          const ConnectionBadge(label: 'Connected', isConnected: true),
+          ConnectionBadge(label: label, isConnected: connected, isPending: pending),
         ],
       ),
     );
+  }
+
+  Widget _buildConnectionOrb() {
+    final snapshot = ref.watch(connectionStateProvider).value ??
+        ConnectionManager.instance.currentState;
+    final (orbState, progress) = _orbForPhase(snapshot);
+    return Center(
+      child: EnhancedOrb(
+        size: 176,
+        state: orbState,
+        progress: progress,
+        intensity: 0.85,
+      ),
+    );
+  }
+
+  (OrbState, double) _orbForPhase(ConnectionSnapshot snapshot) {
+    switch (snapshot.phase) {
+      case ConnectionPhase.offline:
+        return (OrbState.idle, 0.0);
+      case ConnectionPhase.searching:
+        return (OrbState.searching, 0.0);
+      case ConnectionPhase.connecting:
+        return (OrbState.pairing, 0.0);
+      case ConnectionPhase.connected:
+        return (OrbState.connected, 0.0);
+      case ConnectionPhase.receiving:
+        return (OrbState.transferring, snapshot.transferProgress);
+      case ConnectionPhase.completed:
+        return (OrbState.completed, 1.0);
+    }
+  }
+
+  (String, bool, bool) _badgeForPhase(ConnectionPhase phase) {
+    switch (phase) {
+      case ConnectionPhase.offline:
+        return ('Standby', false, false);
+      case ConnectionPhase.searching:
+        return ('Searching', false, true);
+      case ConnectionPhase.connecting:
+        return ('Connecting', false, true);
+      case ConnectionPhase.connected:
+        return ('Connected', true, false);
+      case ConnectionPhase.receiving:
+        return ('Receiving', true, false);
+      case ConnectionPhase.completed:
+        return ('Completed', true, false);
+    }
   }
 
   Widget _buildStatsRow() {

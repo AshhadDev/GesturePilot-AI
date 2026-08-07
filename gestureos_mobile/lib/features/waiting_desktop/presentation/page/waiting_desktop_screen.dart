@@ -10,8 +10,10 @@ import 'package:gesture_os/core/theme/app_colors.dart';
 import 'package:gesture_os/core/widgets/device_discovery_card.dart';
 import 'package:gesture_os/core/widgets/enhanced_orb.dart';
 import 'package:gesture_os/shared/models/device_model.dart';
+import 'package:gesture_os/shared/providers/connection_providers.dart';
 import 'package:gesture_os/shared/providers/device_providers.dart';
 import 'package:gesture_os/shared/providers/transfer_provider.dart';
+import 'package:gesture_os/shared/services/connection_manager.dart';
 
 class WaitingDesktopScreen extends ConsumerStatefulWidget {
   const WaitingDesktopScreen({super.key});
@@ -27,6 +29,7 @@ class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
   late final AnimationController _radarController;
   late final AnimationController _pulseController;
   late final AnimationController _discoveryController;
+  bool _autoStarted = false;
 
   @override
   void initState() {
@@ -47,12 +50,70 @@ class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
     )..repeat();
 
     _startDiscovery();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoStartIfReady();
+    });
   }
 
   void _startDiscovery() {
     Future.microtask(() {
       ref.read(discoveryControllerProvider).start();
     });
+  }
+
+  void _onStartTransfer() {
+    _autoStarted = true;
+    final device = _selectedDevice;
+    if (device == null) return;
+    final notifier = ref.read(transferProvider.notifier);
+    notifier.setTargetDevice(device);
+    notifier.startTransfer();
+    context.goNamed(RouteNames.transferProgress);
+  }
+
+  /// Frictionless flow: when the [ConnectionManager] reports a connected
+  /// (trusted) desktop, auto-select it and start the transfer without any tap.
+  void _autoStartIfReady() {
+    if (_autoStarted || !mounted) return;
+    final files = ref.read(transferProvider).selectedFiles;
+    if (files.isEmpty) return;
+
+    final snapshot = ConnectionManager.instance.currentState;
+    if (snapshot.phase != ConnectionPhase.connected) return;
+
+    final devices = _mergeDevices(
+      ref.read(discoveredDevicesStreamProvider).valueOrNull ?? [],
+      ref.read(trustedDevicesProvider),
+    );
+    Device? target;
+    for (final d in devices) {
+      if (snapshot.deviceName != null && d.name == snapshot.deviceName) {
+        target = d;
+        break;
+      }
+    }
+    target ??= _firstTrusted(devices);
+    target ??= devices.isEmpty ? null : devices.first;
+    if (target == null) return;
+    final device = target;
+
+    _autoStarted = true;
+    if (mounted) setState(() => _selectedDevice = device);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final notifier = ref.read(transferProvider.notifier);
+      notifier.setTargetDevice(device);
+      notifier.startTransfer();
+      context.goNamed(RouteNames.transferProgress);
+    });
+  }
+
+  Device? _firstTrusted(List<Device> devices) {
+    for (final d in devices) {
+      if (d.status == DeviceStatus.trusted) return d;
+    }
+    return null;
   }
 
   @override
@@ -63,17 +124,14 @@ class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
     super.dispose();
   }
 
-  void _onStartTransfer() {
-    final device = _selectedDevice;
-    if (device == null) return;
-    final notifier = ref.read(transferProvider.notifier);
-    notifier.setTargetDevice(device);
-    notifier.startTransfer();
-    context.goNamed(RouteNames.transferProgress);
-  }
-
   @override
   Widget build(BuildContext context) {
+    ref.listen(connectionStateProvider, (prev, next) {
+      final phase = next.value?.phase;
+      if (phase == ConnectionPhase.connected) {
+        _autoStartIfReady();
+      }
+    });
     final devices = ref.watch(discoveredDevicesStreamProvider);
     final trusted = ref.watch(trustedDevicesProvider);
     final active = ref.watch(discoveryActiveProvider);
@@ -100,7 +158,7 @@ class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
                     return _buildDeviceList(allDevices);
                   },
                   loading: () => _buildEmptyState(active),
-                  error: (_, __) => _buildEmptyState(active),
+                  error: (_, _) => _buildEmptyState(active),
                 ),
               ),
               _buildStartButton(),
@@ -337,7 +395,7 @@ class _WaitingDesktopScreenState extends ConsumerState<WaitingDesktopScreen>
   Widget _buildDeviceList(List<Device> devices) {
     return ListView.separated(
       itemCount: devices.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final device = devices[index];
         final isSelected = _selectedDevice?.id == device.id;

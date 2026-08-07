@@ -8,22 +8,25 @@ class ConnectionBadge extends StatelessWidget {
     super.key,
     required this.label,
     this.isConnected = false,
+    this.isPending = false,
   });
 
   final String label;
   final bool isConnected;
+  final bool isPending;
 
   @override
   Widget build(BuildContext context) {
+    final color = isConnected
+        ? AppColors.success
+        : (isPending ? AppColors.secondary : AppColors.error);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: isConnected
-            ? AppColors.success.withValues(alpha: 0.15)
-            : AppColors.error.withValues(alpha: 0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isConnected ? AppColors.success : AppColors.error,
+          color: color,
           width: 1,
         ),
       ),
@@ -35,7 +38,7 @@ class ConnectionBadge extends StatelessWidget {
             height: 8,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: isConnected ? AppColors.success : AppColors.error,
+              color: color,
             ),
           ),
           const SizedBox(width: 8),
@@ -44,7 +47,7 @@ class ConnectionBadge extends StatelessWidget {
             style: GoogleFonts.poppins(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: isConnected ? AppColors.success : AppColors.error,
+              color: color,
             ),
           ),
         ],

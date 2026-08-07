@@ -9,6 +9,7 @@ import 'package:gesture_os/core/utils/logger.dart';
 import 'package:gesture_os/shared/protocol/frame_parser.dart';
 import 'package:gesture_os/shared/protocol/protocol.dart';
 import 'package:gesture_os/shared/services/compression_service.dart';
+import 'package:gesture_os/shared/services/connection_manager.dart';
 import 'package:gesture_os/shared/services/encryption_service.dart';
 import 'package:gesture_os/shared/services/file_manager.dart';
 import 'package:gesture_os/shared/services/network_service.dart';
@@ -121,6 +122,9 @@ class TransferReceiver {
             'protocol_version': ProtocolConstants.version,
           });
           AppLogger.info('[Receiver] Handshake with $remoteName');
+        } else if (frame.messageType == MessageType.stateSync) {
+          ConnectionManager.instance
+              .applyRemoteState(frame.jsonPayload);
         } else if (frame.messageType == MessageType.transferRequest) {
           final payload = frame.jsonPayload;
           transferId = payload?['transfer_id'] as String?;
@@ -141,6 +145,20 @@ class TransferReceiver {
             // Trusted but auto-accept is off → prompt (not yet implemented)
             AppLogger.info(
                 '[Receiver] Transfer from $remoteName requires user confirmation');
+          }
+
+          if (!isTrusted && !autoAcceptTrusted) {
+            parser.sendJson(MessageType.transferReject, frame.transferId, {
+              'transfer_id': transferId,
+              'reason': 'Untrusted device requires pairing',
+            });
+            AppLogger.warning(
+                '[Receiver] Rejected transfer from untrusted $remoteName');
+            emitProgress(
+              status: 'failed',
+              error: 'Rejected transfer from untrusted device',
+            );
+            break;
           }
 
           parser.sendJson(MessageType.transferAccept, frame.transferId, {

@@ -10,6 +10,7 @@ import 'package:gestureos_desktop/shared/models/device_model.dart';
 import 'package:gestureos_desktop/shared/protocol/frame_parser.dart';
 import 'package:gestureos_desktop/shared/protocol/protocol.dart';
 import 'package:gestureos_desktop/shared/services/compression_service.dart';
+import 'package:gestureos_desktop/shared/services/connection_manager.dart';
 import 'package:gestureos_desktop/shared/services/encryption_service.dart';
 import 'package:gestureos_desktop/shared/services/file_manager.dart';
 import 'package:gestureos_desktop/shared/services/network_service.dart';
@@ -124,8 +125,13 @@ class TransferReceiver {
             'device_name': Platform.localHostname,
             'protocol_version': ProtocolConstants.version,
           });
+          // Send our connection phase so the peer mirrors the same state.
+          _sendStateSync(parser, frame.transferId);
           await _maybeHandleQrSession(payload, conn);
           AppLogger.info('[Receiver] Handshake with $remoteName');
+        } else if (frame.messageType == MessageType.stateSync) {
+          ConnectionManager.instance
+              .applyRemoteState(frame.jsonPayload);
         } else if (frame.messageType == MessageType.transferRequest) {
           final payload = frame.jsonPayload;
           transferId = payload?['transfer_id'] as String?;
@@ -144,6 +150,20 @@ class TransferReceiver {
           if (!autoAccepted && autoAcceptTrusted) {
             AppLogger.info(
                 '[Receiver] Transfer from $remoteName requires user confirmation');
+          }
+
+          if (!isTrusted && !autoAcceptTrusted) {
+            parser.sendJson(MessageType.transferReject, frame.transferId, {
+              'transfer_id': transferId,
+              'reason': 'Untrusted device requires pairing',
+            });
+            AppLogger.warning(
+                '[Receiver] Rejected transfer from untrusted $remoteName');
+            emitProgress(
+              status: 'failed',
+              error: 'Rejected transfer from untrusted device',
+            );
+            break;
           }
 
           parser.sendJson(MessageType.transferAccept, frame.transferId, {
@@ -374,6 +394,15 @@ class TransferReceiver {
       await currentFile?.outputFile.close();
       await conn.close();
       parser.close();
+    }
+  }
+
+  void _sendStateSync(FrameParser parser, int transferId) {
+    try {
+      parser.sendJson(MessageType.stateSync, transferId,
+          ConnectionManager.instance.currentState.toJson());
+    } catch (e) {
+      AppLogger.warning('[Receiver] Failed to send state sync: $e');
     }
   }
 

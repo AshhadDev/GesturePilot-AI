@@ -89,6 +89,7 @@ class NetworkService {
   Stream<TcpConnection> get onIncomingConnection => _incomingController.stream;
   List<TcpConnection> get activeConnections => _connections.values.toList();
   bool get isServerRunning => _isServerRunning;
+  int get dataPort => _dataPort;
 
   Future<void> startServer({int port = _dataPort}) async {
     if (_isServerRunning) return;

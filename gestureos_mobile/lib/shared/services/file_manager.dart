@@ -167,7 +167,7 @@ class ResumeIndex {
     required this.transferId,
   });
 
-  String get indexFilePath => '${filePath}.gidx';
+  String get indexFilePath => '$filePath.gidx';
 
   double get progress => fileSize > 0 ? receivedChunks.length / ((fileSize + 65535) ~/ 65536) : 0.0;
 

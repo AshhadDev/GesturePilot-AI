@@ -21,6 +21,8 @@ import 'package:gesture_os/shared/models/device_model.dart';
 import 'package:gesture_os/features/performance/presentation/page/performance_dashboard_screen.dart';
 import 'package:gesture_os/features/history/presentation/page/transfer_history_screen.dart';
 import 'package:gesture_os/features/pairing/presentation/page/pairing_screen.dart';
+import 'package:gesture_os/features/pairing/presentation/page/qr_scanner_screen.dart';
+import 'package:gesture_os/features/pairing/presentation/page/qr_pairing_result_screen.dart';
 
 /// Centralized GoRouter configuration for GestureOS.
 /// Handles all app navigation with smooth page transitions.
@@ -278,6 +280,50 @@ class AppRouter {
                 lastSeen: DateTime.now(),
                 isTrusted: isTrusted,
               ),
+            ),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+          );
+        },
+      ),
+      GoRoute(
+        name: RouteNames.qrScanner,
+        path: RoutePaths.qrScanner,
+        pageBuilder: (context, state) => CustomTransitionPage<void>(
+          key: state.pageKey,
+          child: const QrScannerScreen(),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.05),
+                  end: Offset.zero,
+                ).animate(
+                  CurvedAnimation(parent: animation, curve: Curves.easeInOut),
+                ),
+                child: child,
+              ),
+            );
+          },
+        ),
+      ),
+      GoRoute(
+        name: RouteNames.pairingSuccess,
+        path: RoutePaths.pairingSuccess,
+        pageBuilder: (context, state) {
+          final deviceId = state.pathParameters['deviceId'] ?? '';
+          final deviceName = utf8.decode(base64.decode(state.pathParameters['deviceName'] ?? ''));
+          final deviceIp = state.pathParameters['deviceIp'] ?? '';
+          final devicePlatform = int.tryParse(state.pathParameters['devicePlatform'] ?? '0') ?? 0;
+          return CustomTransitionPage<void>(
+            key: state.pageKey,
+            child: QrPairingResultScreen(
+              deviceId: deviceId,
+              deviceName: deviceName,
+              deviceIp: deviceIp,
+              devicePlatform: devicePlatform,
             ),
             transitionsBuilder: (context, animation, secondaryAnimation, child) {
               return FadeTransition(opacity: animation, child: child);

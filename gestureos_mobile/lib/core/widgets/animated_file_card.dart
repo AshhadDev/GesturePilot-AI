@@ -31,7 +31,7 @@ class AnimatedFileCard extends StatelessWidget {
         alignment: Alignment.center,
         transform: Matrix4.identity()
           ..rotateZ(rotation)
-          ..translate(0.0, -math.sin(rotation) * 4),
+          ..translateByDouble(0.0, -math.sin(rotation) * 4, 0.0, 1.0),
         child: Container(
           width: size,
           height: size * 1.2,

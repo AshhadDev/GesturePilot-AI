@@ -18,6 +18,8 @@ abstract final class RouteNames {
   static const String transferHistory = 'transfer_history';
   static const String pairing = 'pairing';
   static const String deviceDetail = 'device_detail';
+  static const String qrScanner = 'qr_scanner';
+  static const String pairingSuccess = 'pairing_success';
 }
 
 /// Route path constants for GoRouter navigation.
@@ -40,4 +42,6 @@ abstract final class RoutePaths {
   static const String transferHistory = '/history';
   static const String pairing = '/pairing/:deviceId/:deviceName/:deviceIp/:devicePlatform';
   static const String deviceDetail = '/device/:deviceId/:deviceName/:deviceIp/:devicePlatform/:devicePort/:isTrusted';
+  static const String qrScanner = '/qr-scanner';
+  static const String pairingSuccess = '/pairing-success/:deviceId/:deviceName/:deviceIp/:devicePlatform';
 }

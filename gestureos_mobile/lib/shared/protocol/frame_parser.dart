@@ -45,14 +45,14 @@ class FrameParser {
     sendJson(MessageType.ack, transferId, {
       'ack_seq': ackForSeq,
       'status': status,
-      if (message != null) 'message': message,
+      'message': ?message,
     });
   }
 
   void sendError(int transferId, String errorMessage, {int? code}) {
     sendJson(MessageType.error, transferId, {
       'error': errorMessage,
-      if (code != null) 'code': code,
+      'code': ?code,
     });
   }
 

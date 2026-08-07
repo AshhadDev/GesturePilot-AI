@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:permission_handler/permission_handler.dart'
+    as permission_handler;
 
 import 'package:gesture_os/core/utils/logger.dart';
 
@@ -46,10 +47,10 @@ class PermissionNotifier extends StateNotifier<PermissionStateData> {
   }
 
   Future<bool> _checkPermission() async {
-    if (await Permission.photos.status.isGranted) return true;
-    if (await Permission.videos.status.isGranted) return true;
-    if (await Permission.audio.status.isGranted) return true;
-    if (await Permission.storage.status.isGranted) return true;
+    if (await permission_handler.Permission.photos.status.isGranted) return true;
+    if (await permission_handler.Permission.videos.status.isGranted) return true;
+    if (await permission_handler.Permission.audio.status.isGranted) return true;
+    if (await permission_handler.Permission.storage.status.isGranted) return true;
     return false;
   }
 
@@ -58,10 +59,10 @@ class PermissionNotifier extends StateNotifier<PermissionStateData> {
 
     try {
       final results = await [
-        Permission.photos,
-        Permission.videos,
-        Permission.audio,
-        Permission.storage,
+        permission_handler.Permission.photos,
+        permission_handler.Permission.videos,
+        permission_handler.Permission.audio,
+        permission_handler.Permission.storage,
       ].request();
 
       final anyGranted = results.values.any((s) => s.isGranted);
@@ -91,7 +92,7 @@ class PermissionNotifier extends StateNotifier<PermissionStateData> {
   }
 
   void openAppSettings() {
-    openAppSettings();
+    permission_handler.openAppSettings();
   }
 }
 
